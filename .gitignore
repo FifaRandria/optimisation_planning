@@ -1,0 +1,23 @@
+# Dépendances et build
+node_modules/
+.next/
+out/
+next-env.d.ts
+*.tsbuildinfo
+
+# Données réelles de l'entreprise : CONFIDENTIEL, jamais dans le dépôt
+# (seul l'exemple fictif de docs/algo-optimisation/ est versionné)
+docs/*
+!docs/algo-optimisation/
+*.xlsx
+*.xlsm
+*.xls
+*.csv
+!docs/algo-optimisation/*.xlsx
+
+# Archives et fichiers locaux
+*.zip
+.env*
+.DS_Store
+Thumbs.db
+~$*
