@@ -1,13 +1,14 @@
 "use client";
 
 import { useState } from "react";
+import { IconBook, IconChevron, IconDownload } from "./Icons";
 
 type TabId = "planning" | "agents" | "axes" | "amenagements";
 
 const TABS: { id: TabId; label: string; required: boolean }[] = [
   { id: "planning", label: "1. Planning", required: true },
-  { id: "agents", label: "2. Agents", required: true },
-  { id: "axes", label: "3. Axes", required: true },
+  { id: "agents", label: "2. Agents et fonctions", required: true },
+  { id: "axes", label: "3. Axes", required: false },
   { id: "amenagements", label: "4. Aménagements", required: false },
 ];
 
@@ -31,8 +32,8 @@ function Table({ head, rows, cls }: { head: string[]; rows: (string | number)[][
 function Download({ name }: { name: TabId }) {
   return (
     <div className="row" style={{ marginTop: 14 }}>
-      <a className="btn primary small" href={`/api/templates/${name}`}>⬇ Télécharger le modèle Excel</a>
-      <a className="btn small" href={`/api/templates/${name}?full=1`}>Version complète (80 agents)</a>
+      <a className="btn primary small" href={`/api/templates/${name}`}><IconDownload size={14} />Télécharger le modèle Excel</a>
+      <a className="btn small" href={`/api/templates/${name}?full=1`}>Version complète (80 agents fictifs)</a>
     </div>
   );
 }
@@ -40,10 +41,17 @@ function Download({ name }: { name: TabId }) {
 export default function FormatGuide({ open }: { open?: boolean }) {
   const [tab, setTab] = useState<TabId>("planning");
   return (
-    <details className="guide" open={open}>
-      <summary>À quoi doivent ressembler les fichiers ? (exemples + modèles Excel)</summary>
+    <details className="guide" open={open} id="guide">
+      <summary>
+        <span className="num" style={{ width: 30, height: 30 }}><IconBook size={16} /></span>
+        <span>
+          À quoi doivent ressembler les fichiers ?
+          <span className="muted" style={{ display: "block", fontWeight: 400, fontSize: 12.5 }}>Exemples, colonnes reconnues et modèles Excel à télécharger</span>
+        </span>
+        <IconChevron className="chev" />
+      </summary>
       <div className="body">
-        <p style={{ color: "var(--muted)", fontSize: 13.5, marginBottom: 12 }}>
+        <p style={{ color: "var(--muted)", fontSize: 13.5, marginBottom: 14 }}>
           Vous pouvez déposer vos fichiers existants : l'outil repère lui-même les bonnes feuilles grâce aux en-têtes (accents, majuscules et ordre des colonnes sans importance). Les noms de feuilles et de fichiers n'ont pas d'importance non plus. Un seul classeur peut contenir plusieurs feuilles utiles.
         </p>
         <div className="tabs">
@@ -88,17 +96,18 @@ export default function FormatGuide({ open }: { open?: boolean }) {
                 <h3>Règles</h3>
                 <ul>
                   <li><span className="req">obligatoire</span> Colonne <code>Matricule</code> (ex. AG00101, AG00102).</li>
-                  <li><span className="req">obligatoire</span> Une <b>vraie date</b> par jour dans la ligne d'en-tête (cellule fusionnée sur 2 colonnes). Au moins 3 jours.</li>
+                  <li><span className="req">obligatoire</span> Une <b>vraie date</b> par jour dans la ligne d'en-tête (cellule fusionnée sur 2 colonnes), <b>ou</b> une ligne de numéros de jour (1, 2, 3…) avec une colonne <code>Mois</code> (planning mensuel). Au moins 3 jours.</li>
                   <li>Sous chaque date : arrivée puis départ (colonnes voisines).</li>
                   <li>Heures : <code>07:00</code>, <code>7h</code> ou une cellule « heure » Excel.</li>
-                  <li>Autres valeurs acceptées : <code>OFF</code>, <code>CONGE</code>. Tout autre code (<code>D</code>, <code>P</code>…) est conservé et la case n'est jamais échangée.</li>
+                  <li><code>OFF</code> est le seul code échangeable (échange de jour OFF). <code>C</code>, <code>CM</code>, <code>RC</code>, <code>CP</code>, <code>Récup</code>, <code>CONGE</code> et tout autre code sont conservés et ne sont jamais échangés.</li>
                 </ul>
               </div>
               <div>
                 <h3>Comment c'est utilisé</h3>
                 <ul>
-                  <li>Un shift qui finit à partir de l'heure de transport (19h par défaut) = un agent à transporter.</li>
-                  <li>Les cases d'horaires ne sont jamais créées ni supprimées : seuls les <b>noms</b> se déplacent.</li>
+                  <li><b>Ramassage</b> : arrivée à 6h. <b>Remisage</b> : sortie à 18h, 19h, 20h, 21h, 22h ou 23h, chaque heure étant un véhicule séparé (21:30 part à 22h).</li>
+                  <li>Aucun transport pour un shift qui passe minuit (19h → 06h), qui finit à 15h ou qui commence à 9h.</li>
+                  <li>Les cases d'horaires ne sont jamais créées ni supprimées : seuls les <b>noms</b> se déplacent, entre agents de même fonction.</li>
                   <li>Le fichier corrigé est rendu dans exactement ce format.</li>
                 </ul>
               </div>
@@ -149,10 +158,10 @@ export default function FormatGuide({ open }: { open?: boolean }) {
         {tab === "axes" && (
           <>
             <p style={{ marginBottom: 8 }}>
-              <b>La table commune → axe</b> (feuille type « Axes ») : un axe = un véhicule.
+              <b>La table commune → axe</b> (feuille type « Axes » du fichier WFM transport) : un axe = un véhicule par vague. Facultative si la liste des agents donne déjà les colonnes Axe 21h / Axe 23h, mais utile pour les chauffeurs et les durées de trajet.
             </p>
             <Table
-              head={["Commune/Fokotany/Repère map", "Axe 19h", "Axe 21h", "Chauffeur à 19h", "Chauffeur à 21h", "Distance (km)", "Durée en minutes"]}
+              head={["Commune/Fokotany/Repère map", "Axe 23h", "Axe 21h", "Chauffeur à 19h", "Chauffeur à 21h", "Distance (km)", "Durée en minutes"]}
               rows={[
                 ["Ambohibao", "Axe 1", "Axe 1", "Chauffeur A (1111 TAA)", "Chauffeur B (2222 TAB)", 1.7, 5],
                 ["Itaosy", "Axe 3", "Axe 3", "Chauffeur C (3333 TAC)", "Chauffeur D (4444 TAD)", 16.9, 41],
@@ -165,7 +174,7 @@ export default function FormatGuide({ open }: { open?: boolean }) {
                 <h3>Colonnes reconnues</h3>
                 <ul>
                   <li><span className="req">obligatoire</span> Une colonne commune (<code>Commune</code>, <code>Commune/Fokotany/Repère map</code>…).</li>
-                  <li><span className="req">obligatoire</span> Au moins une colonne dont l'en-tête commence par <code>Axe</code> (<code>Axe 21h</code>, <code>Axe 23h</code>…). Si vous en avez plusieurs, vous choisissez dans les réglages (par défaut : celle qui contient « 21h »).</li>
+                  <li><span className="req">obligatoire</span> Les colonnes <code>Axe 23h</code> et <code>Axe 21h</code>. Par défaut, « Axe 21h » sert aux vagues de 21h et 22h, et « Axe 23h » au ramassage de 6h et aux remisages de 18h, 19h, 20h et 23h (modifiable vague par vague dans les réglages).</li>
                   <li><span className="optl">facultatif</span> <code>Chauffeur …</code> : associé aux colonnes d'axe dans le même ordre ; sert aux listes par chauffeur.</li>
                   <li><span className="optl">facultatif</span> <code>Durée en minutes</code> / <code>Distance (km)</code> : départage les cas égaux (trajet le plus court).</li>
                 </ul>
@@ -174,7 +183,7 @@ export default function FormatGuide({ open }: { open?: boolean }) {
                 <h3>Bon à savoir</h3>
                 <ul>
                   <li>Valeurs d'axe : « Axe 3 », « AXE 3 » ou « axe3 » sont équivalentes.</li>
-                  <li>Un axe est un véhicule par vague horaire (19h, 21h…), avec la capacité définie dans les réglages.</li>
+                  <li>Un axe est un véhicule par vague horaire (6h, 18h, 19h…), avec la capacité définie dans les réglages.</li>
                 </ul>
               </div>
             </div>

@@ -57,12 +57,16 @@ const NOMS = ["RAKOTO", "RASOA", "RAVO", "ANDRIA", "RANDRIA", "RAZAFY", "RABE", 
 const SUFFIX = ["MALALA", "NIRINA", "SOLOFO", "HASINA", "TIANA", "MANANA", "VOLA", "LALA"];
 
 const SHIFTS: [number, number, number][] = [
+  [6, 15, 12],
+  [6, 13, 6],
   [7, 16, 22],
   [8, 17, 22],
   [9, 18, 10],
   [10, 19, 12],
   [11, 20, 10],
-  [12, 21, 24],
+  [12, 21, 20],
+  [13, 22, 8],
+  [14, 23, 6],
 ];
 
 export function buildSample(n = 80, startIso = "2026-10-12", seed = 42): SampleSet {
