@@ -106,6 +106,27 @@ export default function SettingsPanel({ settings, onChange }: Props) {
           <Switch checked={settings.offSwap} onChange={(v) => set("offSwap", v)} title="Échange jour travaillé ↔ jour OFF">
             <span>A travaille mardi et est OFF samedi, B l'inverse : ils échangent ces deux jours. La couverture de chaque jour et le nombre de OFF de chacun ne changent pas.</span>
           </Switch>
+          <Switch checked={settings.useReserve} onChange={(v) => set("useReserve", v)} title="Remplacement par une personne hors planning">
+            <span>
+              Une personne de la liste des agents, absente du planning, de même fonction et de même pôle, reprend toute la semaine d'un agent (mêmes shifts, mêmes OFF). L'agent remplacé passe hors planning cette semaine.
+            </span>
+            {settings.useReserve && (
+              <span className="warnline">
+                ⚠ La liste des agents est considérée comme fiable. Si une personne y figure alors qu'elle est indisponible (formation, congé, départ, autre campagne), le remplacement proposé sera inapplicable : vérifiez chaque remplacement avant de diffuser le planning.
+              </span>
+            )}
+          </Switch>
+          <Switch checked={settings.swapRoles} onChange={(v) => set("swapRoles", v)} title="Échanger les agents avec un rôle seul">
+            <span>
+              Aménagements des 2 personnes : avant chaque échange, si l'une des deux a un aménagement, l'échange est refusé (elle ne cède ni ne reçoit aucune case). Activé, ce réglage fait une exception pour les aménagements qui ne sont qu'un rôle (« RENFORT DIGITAL », « TEAM LEAD »).
+            </span>
+            <span>
+              Tout texte avec une autre contrainte (« TEAM LEAD shift AM / OFF samedi », « Allaitement / RENFORT DIGITAL »…) fige toujours la personne. Les dates de congé restent bloquées.
+            </span>
+          </Switch>
+          <p className="help-line" style={{ marginTop: 4 }}>
+            Pôle (FO / BO / SUPPORT) : vérifié pour tous les échanges quand il est connu des deux côtés (colonne « Pôles » d'IT.xlsx ou de la liste des agents).
+          </p>
         </section>
 
         <section className="sec">

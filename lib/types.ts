@@ -33,6 +33,10 @@ export interface AgentInfo {
   historique: number; // nb de shifts tardifs déjà faits (optionnel)
   fonction?: string; // fonction exacte (Personnes-par-fonction) : on n'échange qu'entre même fonction
   axes?: Record<string, string>; // axe donné directement par la liste : clé "21h" / "23h" -> "Axe 3"
+  pole?: string; // FO / BO / SUPPORT (IT.xlsx, colonne « Pôles »)
+  actif?: boolean; // false si « Etat du collaborateur » = INACTIF
+  dateDepart?: string; // ISO
+  mainList?: boolean; // présent dans la liste principale des agents (source de la réserve hors planning)
 }
 
 export interface AxeRow {
@@ -94,6 +98,8 @@ export interface Settings {
   maxDurationDiffMin: number; // écart de durée maxi entre 2 shifts échangés
   respectFunction: boolean; // n'échanger qu'entre agents de même fonction
   offSwap: boolean; // autoriser l'échange par paire jour travaillé <-> jour OFF dans la semaine
+  useReserve: boolean; // remplacer un agent (semaine entière) par une personne hors planning de même fonction / pôle
+  swapRoles: boolean; // aménagement de rôle seul (RENFORT DIGITAL, TEAM LEAD) : échangeable au lieu de figé
   unknownLevelSwappable: boolean; // les agents sans niveau peuvent s'échanger entre eux
   ignoreLevel: boolean; // ignorer complètement le niveau
 }
@@ -109,6 +115,8 @@ export const DEFAULT_SETTINGS: Settings = {
   maxDurationDiffMin: 60,
   respectFunction: true,
   offSwap: true,
+  useReserve: true,
+  swapRoles: false,
   unknownLevelSwappable: true,
   ignoreLevel: false,
 };
@@ -159,6 +167,7 @@ export interface SwapSide {
   axe: string;
   niveau: Level;
   fonction: string;
+  pole: string;
   before: string; // "12:00-21:00" (échange OFF : "mar 13/10 12:00-21:00 · sam 17/10 OFF")
   after: string;
 }
@@ -166,11 +175,14 @@ export interface SwapSide {
 export interface Swap {
   id: number;
   planId: number;
-  kind: "jour" | "off"; // jour = 2 shifts échangés le même jour ; off = paire jour travaillé <-> jour OFF
+  // jour = 2 shifts échangés le même jour ; off = paire jour travaillé <-> jour OFF ;
+  // reserve = une personne hors planning reprend toute la semaine de l'agent
+  kind: "jour" | "off" | "reserve";
   dayIndex: number;
   date: string;
   dayIndex2?: number; // échange OFF : l'autre jour de la semaine
   date2?: string;
+  weekDays?: number[]; // remplacement : jours de la semaine concernée
   a: SwapSide; // l'agent qui quitte le shift tardif
   b: SwapSide; // l'agent qui prend le shift tardif
   reason: string;
@@ -182,7 +194,7 @@ export interface OptimizationResult {
   settings: Settings;
   axeColumns: string[];
   dates: string[];
-  agents: { matricule: string; nom: string; niveau: Level; fonction: string; commune: string; axe: string; frozen: string | null }[];
+  agents: { matricule: string; nom: string; niveau: Level; fonction: string; pole: string; commune: string; axe: string; frozen: string | null; reserve?: boolean }[];
   before: Cell[][]; // [agentIndex][day]
   after: Cell[][];
   changed: boolean[][];

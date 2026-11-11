@@ -42,6 +42,8 @@ export function readSettings(form: FormData): Settings {
     maxDurationDiffMin: num(s.maxDurationDiffMin, D.maxDurationDiffMin, 0, 1440),
     respectFunction: bool(s.respectFunction, D.respectFunction),
     offSwap: bool(s.offSwap, D.offSwap),
+    useReserve: bool(s.useReserve, D.useReserve),
+    swapRoles: bool(s.swapRoles, D.swapRoles),
     unknownLevelSwappable: bool(s.unknownLevelSwappable, D.unknownLevelSwappable),
     ignoreLevel: bool(s.ignoreLevel, D.ignoreLevel),
   };

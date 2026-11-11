@@ -91,15 +91,28 @@ export function previewStats(inputs: ParsedInputs, settings: Settings) {
   let withAxe = 0;
   let withLevel = 0;
   let withFunction = 0;
+  let withPole = 0;
   let lateShifts = 0;
   let pickups = 0;
   const lateAgents = new Set<string>();
   const fns = new Set<string>();
+  // aménagements des agents du planning : figés, et parmi eux les « rôles seuls »
+  const amenTexts = new Map<string, string[]>();
+  for (const a of inputs.amenagements) if (a.texte) amenTexts.set(a.matricule, [...(amenTexts.get(a.matricule) ?? []), a.texte]);
+  let amenFrozen = 0;
+  let amenRoleOnly = 0;
+  for (const pa of inputs.planning.agents) {
+    const texts = amenTexts.get(pa.matricule);
+    if (!texts) continue;
+    if (texts.every(isRoleOnly)) amenRoleOnly++;
+    if (texts.some((t) => amenFreezes(t, settings))) amenFrozen++;
+  }
   for (const pa of inputs.planning.agents) {
     const a = info.get(pa.matricule);
     if (a) withAgent++;
     if (Object.keys(resolve(a).axes).length) withAxe++;
     if (a && a.niveau !== "INCONNU") withLevel++;
+    if (a?.pole) withPole++;
     const fn = a?.fonction ?? pa.fonction;
     if (fn) {
       withFunction++;
@@ -120,6 +133,10 @@ export function previewStats(inputs: ParsedInputs, settings: Settings) {
     withAxe,
     withLevel,
     withFunction,
+    withPole,
+    reserve: settings.useReserve ? reserveCandidates(inputs, resolve, settings).list.length : 0,
+    amenFrozen,
+    amenRoleOnly,
     functions: fns.size,
     lateShifts,
     pickups,
@@ -127,6 +144,34 @@ export function previewStats(inputs: ParsedInputs, settings: Settings) {
     amenagements: inputs.amenagements.length,
     communes: inputs.axes?.rows.length ?? 0,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Réserve : personnes de la liste principale absentes du planning
+// ---------------------------------------------------------------------------
+
+/**
+ * Candidats « hors planning » : liste principale des agents (ex. Personnes-par-fonction), absents du planning,
+ * avec une fonction et un axe, sans aménagement, non INACTIF et pas partis avant le début du planning.
+ * La liste fournie par l'utilisateur est considérée comme fiable (aucune autre vérification de disponibilité).
+ */
+function reserveCandidates(inputs: ParsedInputs, resolve: (info: AgentInfo | undefined) => ResolvedAgent, settings: Pick<Settings, "swapRoles">) {
+  const planned = new Set(inputs.planning?.agents.map((a) => a.matricule) ?? []);
+  const first = inputs.planning?.dates[0] ?? "";
+  const amen = new Set(inputs.amenagements.filter((a) => amenFreezes(a.texte, settings)).map((a) => a.matricule));
+  const list: { info: AgentInfo; res: ResolvedAgent }[] = [];
+  const excluded = { amenagement: 0, inactif: 0, depart: 0, sansFonction: 0, sansAxe: 0 };
+  for (const info of inputs.agents) {
+    if (!info.mainList || planned.has(info.matricule)) continue;
+    if (info.actif === false) { excluded.inactif++; continue; }
+    if (info.dateDepart && info.dateDepart <= first) { excluded.depart++; continue; }
+    if (!info.fonction) { excluded.sansFonction++; continue; }
+    if (amen.has(info.matricule)) { excluded.amenagement++; continue; }
+    const res = resolve(info);
+    if (!Object.keys(res.axes).length) { excluded.sansAxe++; continue; }
+    list.push({ info, res });
+  }
+  return { list, excluded };
 }
 
 // ---------------------------------------------------------------------------
@@ -141,6 +186,22 @@ const AMEN_KEYWORDS: [RegExp, string][] = [
   [/conge|permission|report/, "congé / permission"],
   [/abandon/, "abandon de poste"],
 ];
+
+/**
+ * Aménagement de « rôle seul » : une fois retirées les mentions de rôle (RENFORT DIGITAL, TEAM LEAD),
+ * il ne reste rien. « TEAM LEAD shift AM / OFF samedi » n'est PAS un rôle seul (il porte d'autres contraintes).
+ */
+export function isRoleOnly(texte: string): boolean {
+  const n = norm(texte);
+  if (!n) return false;
+  return n.replace(/\brenfort digital\b|\bteam lead\b/g, " ").trim() === "";
+}
+
+/** Un aménagement fige-t-il la personne ? Oui pour tout texte, sauf rôle seul quand le réglage le permet. */
+function amenFreezes(texte: string, settings: Pick<Settings, "swapRoles">): boolean {
+  if (!texte) return false;
+  return !(settings.swapRoles && isRoleOnly(texte));
+}
 
 function classifyAmenagement(texte: string): string | null {
   const n = norm(texte);
@@ -163,7 +224,12 @@ interface AgentMeta {
   duree: number;
   frozen: string | null;
   blockedDays: Set<number>;
+  pole: string; // FO / BO / SUPPORT ("" = inconnu)
+  reserve: boolean; // personne hors planning (réserve)
 }
+
+const HORS: Cell = { k: "code", raw: "HORS PLANNING" };
+const REMPLACE: Cell = { k: "code", raw: "REMPLACÉ" };
 
 /** Une modification de case : l'agent i reçoit la case c le jour d. */
 interface Assign {
@@ -173,11 +239,12 @@ interface Assign {
 }
 
 interface Move {
-  kind: "jour" | "off";
+  kind: "jour" | "off" | "reserve";
   x: number; // l'agent qui quitte le groupe
   y: number; // le partenaire
   d: number;
   k?: number; // échange OFF : l'autre jour
+  week?: number[]; // remplacement par la réserve : jours de la semaine
   assigns: Assign[];
 }
 
@@ -187,7 +254,7 @@ export function optimize(inputs: ParsedInputs, settings: Settings): Optimization
   const planning = inputs.planning;
   const dates = planning.dates;
   const nDays = dates.length;
-  const nAg = planning.agents.length;
+  const nPlan = planning.agents.length;
   const cap = Math.max(1, Math.floor(settings.capacity));
   const minRest = settings.minRestHours * 60;
   const alerts: Alert[] = [...inputs.alerts];
@@ -213,7 +280,15 @@ export function optimize(inputs: ParsedInputs, settings: Settings): Optimization
     const blocked = new Set<number>();
     const frozenReasons: string[] = [];
     for (const a of am) {
-      if (a.texte) {
+      if (a.texte && !amenFreezes(a.texte, settings)) {
+        alerts.push({
+          level: "info",
+          code: "amenagement-role",
+          matricule: pa.matricule,
+          nom: pa.nom,
+          message: `Aménagement « ${a.texte} » = rôle seul : agent échangeable (réglage « rôles échangeables » activé). Ses congés restent bloqués.`,
+        });
+      } else if (a.texte) {
         const cat = classifyAmenagement(a.texte);
         frozenReasons.push(`Aménagement : ${a.texte}`);
         alerts.push({
@@ -270,11 +345,13 @@ export function optimize(inputs: ParsedInputs, settings: Settings): Optimization
       duree: res.duree ?? 999,
       frozen: frozenReasons.length ? frozenReasons[0] : null,
       blockedDays: blocked,
+      pole: info?.pole ?? "",
+      reserve: false,
     };
   });
   if (fnFromPlanning)
     alerts.push({ level: "info", code: "fonction-planning", message: `${fnFromPlanning} agent(s) sans fonction dans la liste : la fonction du planning (souvent plus générique) est utilisée.` });
-  if (unknownLevel.length && unknownLevel.length < nAg)
+  if (unknownLevel.length && unknownLevel.length < nPlan)
     alerts.push({
       level: "info",
       code: "niveau-inconnu",
@@ -315,10 +392,54 @@ export function optimize(inputs: ParsedInputs, settings: Settings): Optimization
     daysOfWeek.get(w)!.push(d);
   });
 
+  // -- réserve hors planning --------------------------------------------------------
+  if (settings.useReserve) {
+    const { list, excluded } = reserveCandidates(inputs, resolve, settings);
+    for (const { info, res } of list) {
+      const blocked = new Set<number>();
+      for (const a of amenBy.get(info.matricule) ?? [])
+        if (a.congeDebut) dates.forEach((d, i) => d >= a.congeDebut! && d <= (a.congeFin ?? a.congeDebut!) && blocked.add(i));
+      if (info.dateDepart) dates.forEach((d, i) => d >= info.dateDepart! && blocked.add(i));
+      metas.push({
+        matricule: info.matricule,
+        nom: info.nom ?? info.matricule,
+        niveau: info.niveau,
+        fonction: info.fonction!,
+        fnKey: norm(info.fonction),
+        commune: info.communes[0] ?? "",
+        axes: res.axes,
+        duree: res.duree ?? 999,
+        frozen: null,
+        blockedDays: blocked,
+        pole: info.pole ?? "",
+        reserve: true,
+      });
+    }
+    const ex = [
+      excluded.inactif && `${excluded.inactif} inactif(s)`,
+      excluded.depart && `${excluded.depart} parti(s)`,
+      excluded.amenagement && `${excluded.amenagement} avec aménagement`,
+      excluded.sansAxe && `${excluded.sansAxe} sans axe`,
+      excluded.sansFonction && `${excluded.sansFonction} sans fonction`,
+    ].filter(Boolean);
+    alerts.push({
+      level: "info",
+      code: "reserve",
+      message: `${list.length} personne(s) hors planning utilisables en réserve (liste des agents, considérée comme fiable)${ex.length ? ` ; écartées : ${ex.join(", ")}` : ""}.`,
+    });
+  }
+  const nAg = metas.length;
+
+  // pôle : contrainte seulement si les deux pôles sont connus
+  const withPole = metas.filter((m) => m.pole && !m.reserve).length;
+  if (withPole && withPole < nPlan)
+    alerts.push({ level: "info", code: "pole-inconnu", message: `${nPlan - withPole} agent(s) du planning sans pôle (FO / BO / SUPPORT) : la règle « même pôle » ne peut pas être vérifiée pour eux.` });
+
   // -- état modifiable -----------------------------------------------------------
-  const before: Cell[][] = planning.agents.map((a) => a.cells.map((c) => ({ ...c }) as Cell));
-  const cells: Cell[][] = planning.agents.map((a) => a.cells.map((c) => ({ ...c }) as Cell));
-  const locked: boolean[][] = planning.agents.map(() => dates.map(() => false));
+  const rowsOf = () => metas.map((m, i) => (i < nPlan ? planning.agents[i].cells.map((c) => ({ ...c }) as Cell) : dates.map(() => HORS)));
+  const before: Cell[][] = rowsOf();
+  const cells: Cell[][] = rowsOf();
+  const locked: boolean[][] = metas.map(() => dates.map(() => false));
 
   const keysOf = (i: number, c: Cell): string[] =>
     transportEvents(c, settings).map((e) => {
@@ -358,7 +479,10 @@ export function optimize(inputs: ParsedInputs, settings: Settings): Optimization
   // -- règles de validité ----------------------------------------------------------
   const levelClass = (i: number): string => (settings.ignoreLevel ? "ALL" : metas[i].niveau);
   const compatible = (x: number, y: number) =>
-    x !== y && (!settings.respectFunction || (metas[x].fnKey !== "" && metas[x].fnKey === metas[y].fnKey)) && levelClass(x) === levelClass(y);
+    x !== y &&
+    (!settings.respectFunction || (metas[x].fnKey !== "" && metas[x].fnKey === metas[y].fnKey)) &&
+    levelClass(x) === levelClass(y) &&
+    !(metas[x].pole && metas[y].pole && metas[x].pole !== metas[y].pole); // même pôle si les deux sont connus
   const canTouch = (i: number, d: number) => !metas[i].frozen && !locked[i][d] && !metas[i].blockedDays.has(d);
   const dur = (c: Cell) => (c.k === "shift" ? c.dep - c.arr : 0);
   const restPairOk = (i: number, d: number) => {
@@ -387,12 +511,15 @@ export function optimize(inputs: ParsedInputs, settings: Settings): Optimization
   /** Essaie un mouvement (puis l'annule) : variation du coût et de l'équité, ou null si le repos n'est pas respecté. */
   const evaluate = (move: Move): Eval | null => {
     const ag = [move.x, move.y];
-    const days = move.k === undefined ? [move.d] : [move.d, move.k];
+    const days = move.kind === "reserve" ? [] : move.k === undefined ? [move.d] : [move.d, move.k];
     const lb = ag.map((i) => late[i]);
     const wb = ag.map((i) => wkOff[i]);
     const c0 = totalCost;
     const undo = apply(move.assigns);
-    const ok = ag.every((i) => restOkAround(i, days));
+    // réserve : à l'intérieur de la semaine, R a les horaires de A (rien de nouveau) ; on vérifie seulement
+    // les deux bords de la semaine (R peut remplacer quelqu'un d'autre la semaine d'avant ou d'après)
+    const w = move.week;
+    const ok = move.kind === "reserve" && w ? restPairOk(move.y, w[0] - 1) && restPairOk(move.y, w[w.length - 1]) : ag.every((i) => restOkAround(i, days));
     const dCost = totalCost - c0;
     const dLate = ag.reduce((s, i, j) => s + late[i] ** 2 - lb[j] ** 2, 0);
     const dWk = ag.reduce((s, i, j) => s + wkOff[i] ** 2 - wb[j] ** 2, 0);
@@ -404,11 +531,13 @@ export function optimize(inputs: ParsedInputs, settings: Settings): Optimization
 
   // candidats par fonction
   const pool = new Map<string, number[]>();
+  const reservePool = new Map<string, number[]>();
   metas.forEach((m, i) => {
     if (m.frozen) return;
     const k = settings.respectFunction ? m.fnKey : "*";
-    if (!pool.has(k)) pool.set(k, []);
-    pool.get(k)!.push(i);
+    const target = m.reserve ? reservePool : pool;
+    if (!target.has(k)) target.set(k, []);
+    target.get(k)!.push(i);
   });
 
   const candidatesFor = (x: number, d: number, exclude: Set<number>): Eval[] => {
@@ -452,13 +581,30 @@ export function optimize(inputs: ParsedInputs, settings: Settings): Optimization
         if (e) out.push(e);
       }
     }
+    // 3) remplacement de la semaine entière par une personne hors planning (réserve)
+    if (settings.useReserve) {
+      const wdays = daysOfWeek.get(week[d]) ?? [d];
+      const xFree = wdays.every((k) => canTouch(x, k) && ["shift", "off", "empty"].includes(cells[x][k].k));
+      if (xFree)
+        for (const r of reservePool.get(settings.respectFunction ? metas[x].fnKey : "*") ?? []) {
+          if (exclude.has(r) || !compatible(x, r)) continue;
+          if (!wdays.every((k) => !locked[r][k] && !metas[r].blockedDays.has(k) && cells[r][k] === HORS)) continue;
+          const assigns = wdays.flatMap((k) => [
+            { i: r, d: k, c: cells[x][k] },
+            { i: x, d: k, c: REMPLACE },
+          ]);
+          const e = evaluate({ kind: "reserve", x, y: r, d, week: wdays, assigns });
+          if (e) out.push(e);
+        }
+    }
     return out;
   };
 
   const better = (a: Eval, b: Eval) => {
     if (a.primary !== b.primary) return a.primary < b.primary;
-    // à note égale : l'échange du même jour (moins de changements) avant l'échange OFF
-    if (a.move.kind !== b.move.kind) return a.move.kind === "jour";
+    // à note égale : on touche d'abord le planning existant (même jour, puis jour OFF), la réserve en dernier
+    const rank = { jour: 0, off: 1, reserve: 2 } as const;
+    if (a.move.kind !== b.move.kind) return rank[a.move.kind] < rank[b.move.kind];
     const ya = a.move.y;
     const yb = b.move.y;
     if (late[ya] !== late[yb]) return late[ya] < late[yb];
@@ -470,7 +616,7 @@ export function optimize(inputs: ParsedInputs, settings: Settings): Optimization
   interface Applied {
     move: Move;
     undo: Assign[];
-    before: { x: Cell; y: Cell; xk?: Cell; yk?: Cell };
+    before: { x: Cell; y: Cell; xk?: Cell; yk?: Cell; xWeek?: Cell[] };
   }
   const lockMove = (m: Move, v: boolean) => {
     for (const a of m.assigns) locked[a.i][a.d] = v;
@@ -502,6 +648,7 @@ export function optimize(inputs: ParsedInputs, settings: Settings): Optimization
         y: cells[m.y][m.d],
         xk: m.k !== undefined ? cells[m.x][m.k] : undefined,
         yk: m.k !== undefined ? cells[m.y][m.k] : undefined,
+        xWeek: m.week?.map((k) => cells[m.x][k]),
       };
       const undo = apply(m.assigns);
       lockMove(m, true);
@@ -542,6 +689,7 @@ export function optimize(inputs: ParsedInputs, settings: Settings): Optimization
     axe,
     niveau: metas[i].niveau,
     fonction: metas[i].fonction,
+    pole: metas[i].pole,
     before: b,
     after: a,
   });
@@ -568,6 +716,26 @@ export function optimize(inputs: ParsedInputs, settings: Settings): Optimization
           a: side(m.x, ax, fmtShift(ap.before.x), fmtShift(ap.before.y)),
           b: side(m.y, ay, fmtShift(ap.before.y), fmtShift(ap.before.x)),
           reason: `${metas[m.x].nom} (${ax}) laisse son ${fmtShift(ap.before.x)} du ${dl} à ${metas[m.y].nom} (${ay}, même fonction « ${metas[m.y].fonction || "—"} ») et prend son ${fmtShift(ap.before.y)}. ${summary} (${gainTxt}).`,
+          planSummary: summary,
+          vehiclesSaved: res.gain,
+        });
+      } else if (m.kind === "reserve") {
+        const wd = m.week!;
+        const wk = ap.before.xWeek!.map((c, j) => `${dayLabel(dates[wd[j]])} ${fmtShift(c) || "—"}`).join(" · ");
+        const nShifts = ap.before.xWeek!.filter((c) => c.k === "shift").length;
+        const A = metas[m.x];
+        const R = metas[m.y];
+        const poleTxt = A.pole && R.pole ? `même pôle ${R.pole}` : "pôle non renseigné : vérifiez qu'ils sont du même pôle";
+        swaps.push({
+          id: ++swapId,
+          planId,
+          kind: "reserve",
+          dayIndex: m.d,
+          date: dates[m.d],
+          weekDays: wd,
+          a: side(m.x, ax, wk, "Hors planning cette semaine (remplacé)"),
+          b: side(m.y, ay, "Hors planning", wk),
+          reason: `Remplacement par la réserve (même fonction « ${R.fonction} », ${poleTxt}) : ${R.nom} (${ay}), absent du planning, reprend toute la semaine de ${A.nom} (${ax}) du ${dayLabel(dates[wd[0]])} au ${dayLabel(dates[wd[wd.length - 1]])} : ${nShifts} shift(s), mêmes horaires et mêmes OFF. ${A.nom} passe hors planning cette semaine. À CONFIRMER : vérifiez que ${R.nom} est réellement disponible (formation, congé, autre campagne…). ${summary} (${gainTxt}).`,
           planSummary: summary,
           vehiclesSaved: res.gain,
         });
@@ -623,12 +791,13 @@ export function optimize(inputs: ParsedInputs, settings: Settings): Optimization
   }
 
   // -- sorties -------------------------------------------------------------------
-  const changed = cells.map((row, i) =>
+  const changedAll = cells.map((row, i) =>
     row.map((c, d) => {
       const b = before[i][d];
-      return b.k !== c.k || (b.k === "shift" && c.k === "shift" && (b.arr !== c.arr || b.dep !== c.dep));
+      return b.k !== c.k || (b.k === "code" && c.k === "code" && b.raw !== c.raw) || (b.k === "shift" && c.k === "shift" && (b.arr !== c.arr || b.dep !== c.dep));
     })
   );
+  const keep = metas.map((m, i) => !m.reserve || changedAll[i].some(Boolean));
 
   const buildGroups = (state: Cell[][]): Group[] => {
     const out: Group[] = [];
@@ -704,6 +873,7 @@ export function optimize(inputs: ParsedInputs, settings: Settings): Optimization
   // alertes de repos (planning d'origine) et de capacité
   planning.agents.forEach((pa, i) => {
     for (let d = 1; d < nDays; d++) {
+      if (i >= nPlan) break;
       const p = before[i][d - 1];
       const c = before[i][d];
       if (p.k === "shift" && c.k === "shift" && c.arr + 1440 - p.dep < minRest)
@@ -716,6 +886,14 @@ export function optimize(inputs: ParsedInputs, settings: Settings): Optimization
         });
     }
   });
+  for (const sw of swaps.filter((x) => x.kind === "reserve"))
+    alerts.push({
+      level: "warn",
+      code: "reserve-a-confirmer",
+      matricule: sw.b.matricule,
+      nom: sw.b.nom,
+      message: `Personne hors planning proposée pour remplacer ${sw.a.nom} (${sw.a.matricule}) la semaine du ${dayLabel(dates[sw.weekDays![0]])} au ${dayLabel(dates[sw.weekDays![sw.weekDays!.length - 1]])} : confirmez sa disponibilité réelle avant de diffuser. Le repos avec sa semaine précédente n'est pas vérifiable.`,
+    });
   if (swaps.some((s) => s.dayIndex === 0 || s.dayIndex2 === 0))
     alerts.push({
       level: "info",
@@ -739,10 +917,12 @@ export function optimize(inputs: ParsedInputs, settings: Settings): Optimization
     settings,
     axeColumns: inputs.axes?.axeColumns ?? ["Axe 21h", "Axe 23h"],
     dates,
-    agents: metas.map((m) => ({ matricule: m.matricule, nom: m.nom, niveau: m.niveau, fonction: m.fonction, commune: m.commune, axe: axeText(m), frozen: m.frozen })),
-    before,
-    after: cells,
-    changed,
+    agents: metas
+      .filter((_, i) => keep[i])
+      .map((m) => ({ matricule: m.matricule, nom: m.nom, niveau: m.niveau, fonction: m.fonction, pole: m.pole, commune: m.commune, axe: axeText(m), frozen: m.frozen, reserve: m.reserve || undefined })),
+    before: before.filter((_, i) => keep[i]),
+    after: cells.filter((_, i) => keep[i]),
+    changed: changedAll.filter((_, i) => keep[i]),
     swaps,
     groupsBefore,
     groupsAfter,

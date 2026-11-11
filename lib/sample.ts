@@ -130,6 +130,16 @@ export function buildSample(n = 80, startIso = "2026-10-12", seed = 42): SampleS
     planning.push({ matricule, nom, cells });
   }
 
+  // réserve : quelques personnes de la liste des agents absentes du planning (même niveau / fonctions que les autres)
+  const FONCTIONS = ["CSA Appels Entrants MVOLA", "CSA Certification Mvola", "Conseiller client (B4B)", "CSA Appels Entrants MVOLA", "CSA Certification Mvola", "CSA Digital YAS"];
+  FONCTIONS.forEach((fonction, j) => {
+    let nom = "";
+    do nom = `${pick(NOMS)}${pick(SUFFIX)} ${pick(PRENOMS)}`;
+    while (used.has(nom));
+    used.add(nom);
+    agents.push({ matricule: `CN${String(1901 + j * 3).padStart(5, "0")}`, nom, fonction, commune: pick(COMMUNES)[0], niveau: j % 2 ? "Midle" : "Perf", historique: 0 });
+  });
+
   // aménagements : quelques agents figés + congés
   const am = (idx: number, texte: string, debut?: number, fin?: number) => {
     if (idx >= agents.length) return;

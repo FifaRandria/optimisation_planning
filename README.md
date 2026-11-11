@@ -78,9 +78,21 @@ Les données réelles ont montré trois écarts :
 |---|---|---|
 | Sans contrainte de fonction (logique v1) | 1799 → 1150 | −36,1 %, mais **irréalisable** : la couverture par fonction n'est pas respectée |
 | Fonction seule | 1799 → 1431 | −20,5 % |
-| **Fonction + échange jour OFF (v2)** | 1799 → 1376 | **−23,5 %** |
+| Fonction + échange jour OFF (v2) | 1799 → 1373 | −23,7 % |
+| **+ réserve hors planning (v2.1)** | 1799 → 1358 | **−24,5 %** |
 
-L'échange de jour OFF récupère environ 15 % de gain en plus, sans changer la couverture d'aucun jour.
+*(Mesures avec IT.xlsx chargé, donc avec la règle de pôle, ce qui explique le léger écart avec la v2 initiale, −23,5 %.)*
+
+L'échange de jour OFF récupère environ 15 % de gain en plus, sans changer la couverture d'aucun jour. La réserve ajoute 15 véhicules sur le mois, avec 40 remplacements (d'une semaine chacun), tous à confirmer.
+
+### v2.1 — remplacement par une personne hors planning (« réserve »)
+- Une personne présente dans la **liste principale des agents** (ex. Personnes-par-fonction) mais **absente du planning** peut reprendre **toute la semaine** d'un agent planifié : mêmes shifts, mêmes OFF. L'agent remplacé reçoit `REMPLACÉ` sur sa semaine et passe hors planning cette semaine-là.
+- Conditions : **même fonction**, **même pôle** (FO / BO / SUPPORT, colonne « Pôles » d'IT.xlsx, vérifié quand il est connu des deux côtés) et même niveau s'il est renseigné. La semaine de l'agent ne doit contenir que des shifts et des OFF, et le remplaçant ne sert qu'une fois par semaine.
+- Personnes écartées de la réserve : aménagement, congé cette semaine-là, « Etat du collaborateur » = INACTIF, date de départ passée.
+- **La liste est considérée comme fiable** : l'écran avertit qu'une personne listée mais réellement indisponible (formation, congé, autre campagne) donnerait un remplacement inapplicable. Chaque remplacement est marqué **« à confirmer »**.
+- À note égale, l'algorithme préfère toujours le planning existant : même jour, puis jour OFF, puis réserve.
+- La règle de pôle s'applique aussi aux deux autres mouvements.
+- Repos : à l'intérieur de la semaine, le remplaçant a les horaires de l'agent remplacé. On vérifie seulement les bords de la semaine, au cas où il remplace quelqu'un d'autre la semaine voisine.
 
 ---
 
@@ -90,6 +102,7 @@ L'échange de jour OFF récupère environ 15 % de gain en plus, sans changer la 
 - **Fonction** : lue dans la liste des agents, normalisée (accents et majuscules ignorés).
 - **Axes** : `Axe 21h` et `Axe 23h` lus directement, sinon déduits de la commune avec la table des axes. On cherche d'abord une correspondance exacte, puis par début de mot (au moins 5 lettres) si elle ne mène qu'à un seul axe. La durée du trajet sert à départager deux candidats égaux.
 - **Agent figé** (jamais échangé) s'il a un aménagement, s'il est absent de la liste, s'il n'a ni axe ni fonction, ou s'il n'a pas de niveau quand le réglage l'interdit. Les dates de congé des aménagements bloquent ses jours.
+- **Aménagements des deux personnes :** un échange exige que les deux personnes soient libres. Si l'une des deux a un aménagement, quel qu'en soit le texte (santé, horaire imposé, OFF imposé…), l'échange est refusé ; la règle vaut aussi pour la réserve hors planning. Exception **optionnelle** (réglage « Échanger les agents avec un rôle seul », `swapRoles`, désactivé par défaut) : un aménagement qui n'est qu'un rôle (« RENFORT DIGITAL », « TEAM LEAD », sans autre mention) ne fige pas la personne. Contrôlé par `amenTouched` dans `scripts/run-real.ts`.
 - **Compteurs d'équité** : `tardifs` = historique + nombre de shifts avec remisage ; `weOff` = nombre de samedis et dimanches OFF.
 
 ### 2. Grouper : une vague + un axe = un véhicule
@@ -101,7 +114,7 @@ véhicules d'un jour = Σ  ⌈ taille du groupe ÷ capacité ⌉      (capacité
 
 Les compteurs sont tenus à jour **de façon incrémentale** : chaque modification de case ne recalcule que les groupes touchés. C'est ce qui rend le mois réel calculable en quelques secondes.
 
-### 3. Les deux mouvements possibles
+### 3. Les trois mouvements possibles
 
 **a) Échange du même jour** (déjà présent en v1)
 A et B travaillent tous les deux le jour J : A prend le shift de B, B prend celui de A.
@@ -118,8 +131,11 @@ après   A : OFF                 08:00-17:00
 - A et B gardent chacun le même nombre de jours OFF dans la semaine.
 - J et K appartiennent à la même semaine (du lundi au dimanche).
 
-**Règles de validité, communes aux deux mouvements :**
-1. A ≠ B, **même fonction** et même niveau (le niveau est ignoré si on le demande) ;
+**c) Remplacement par la réserve** (nouveau en v2.1)
+R, présent dans la liste des agents mais absent du planning, reprend toute la semaine de A (mêmes shifts, mêmes OFF) ; A reçoit `REMPLACÉ` sur la semaine. Le coût est compté sur les 7 jours. Voir la section v2.1 pour les conditions.
+
+**Règles de validité, communes aux trois mouvements :**
+1. A ≠ B, **même fonction**, **même pôle** quand il est connu des deux côtés, et même niveau (le niveau est ignoré si on le demande) ;
 2. aucun des deux n'est figé ; aucune case touchée n'est verrouillée ni en congé ;
 3. les deux shifts échangés ont une durée proche (écart de 60 min au plus par défaut), ce qui garde les heures de la semaine ;
 4. **repos ≥ 13 h** pour les deux agents, autour de chaque jour modifié ;
@@ -135,7 +151,7 @@ note = Δvéhicules × 1000 + poids_tardifs × Δ Σ tardifs² + poids_weekend �
 - Δvéhicules couvre **tous les jours touchés** : J seul, ou J et K pour un échange OFF. Si un échange OFF ajoute un véhicule le jour K, il est compté.
 - Les sommes de carrés pénalisent le fait de donner un shift tardif, ou de retirer un week-end OFF, à quelqu'un qui en a déjà beaucoup (ou peu).
 - Le ×1000 fait que supprimer un véhicule l'emporte presque toujours sur l'équité.
-- En cas d'égalité, on prend dans l'ordre : l'échange du même jour plutôt que l'échange OFF (moins de changements), puis le plus petit compteur de tardifs, puis le trajet le plus court, puis l'ordre du fichier.
+- En cas d'égalité, on prend dans l'ordre : l'échange du même jour, puis l'échange OFF, puis la réserve (moins de changements d'abord), puis le plus petit compteur de tardifs, puis le trajet le plus court, puis l'ordre du fichier.
 
 ### 5. Le plan : fermer un groupe entier, ou rien
 - Jour par jour, on prend les groupes **du plus petit au plus grand**. Un groupe est ignoré s'il dépasse la capacité, s'il contient un agent figé, verrouillé, en congé ou sans axe.
@@ -155,7 +171,9 @@ note = Δvéhicules × 1000 + poids_tardifs × Δ Σ tardifs² + poids_weekend �
 | Cases figées (congé, code, agent figé) modifiées | 0 |
 | Nouveaux repos de moins de 13 h | 0 |
 | Échanges entre fonctions différentes | 0 |
+| Échanges entre pôles différents (quand ils sont connus) | 0 |
 | Échanges OFF à cheval sur deux semaines | 0 |
+| Remplacements où la semaine du remplaçant ≠ celle de l'agent remplacé | 0 |
 
 Limite connue : le repos avec la veille du premier jour (semaine précédente, absente du planning S+1) ne peut pas être vérifié. Une alerte le signale.
 
@@ -172,6 +190,8 @@ Limite connue : le repos avec la veille du premier jour (semaine précédente, a
 | Vagues utilisant « Axe 21h » | 21, 22 | les autres utilisent « Axe 23h » |
 | Même fonction | oui | décocher seulement pour mesurer le gain perdu |
 | Échange jour OFF | oui | active le mouvement b) |
+| Réserve hors planning | oui | active le mouvement c) |
+| Rôles seuls échangeables | non | « RENFORT DIGITAL » / « TEAM LEAD » sans autre mention ne figent plus la personne |
 | Équité tardifs / week-ends | 10 / 10 | 0 = seul le nombre de véhicules compte |
 | Écart de durée max | 60 min | entre deux shifts échangés |
 | Niveau | respecté | un niveau inconnu ne s'échange qu'avec un niveau inconnu, sauf si « ignorer le niveau » est coché |
@@ -199,6 +219,7 @@ docs/algo-optimisation/ présentation de l'algorithme + exemple fictif (données
 `npx tsx scripts/exemple-fictif.ts` génère et relit les 4 classeurs de `docs/algo-optimisation/` :
 - **lundi** : Alice ⇄ Hery, puis David ⇄ Emma, ce qui ferme les axes 1 et 3 à 21h. Nina, d'une autre fonction, est refusée alors qu'elle aurait été la meilleure candidate.
 - **mardi ↔ mercredi** : échange de jour OFF entre Olga et Paul (même fonction), ce qui ferme l'axe 1 à 21h.
-- Résultat : **5 → 2 véhicules**.
+- **mercredi** : Tiana, hors planning, CSA Digital, pôle FO, reprend la semaine de Rina (même fonction, même pôle), ce qui ferme l'axe 3 à 21h. Ulrich (pôle BO) est refusé alors qu'il est à égalité et listé avant elle.
+- Résultat : **7 → 3 véhicules**.
 
 > La présentation `Algorithme_Optimisation_Planning.pptx` décrit encore la v1 (vagues 19h/21h, niveau). La logique du lundi y reste valable.

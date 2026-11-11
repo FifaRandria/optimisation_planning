@@ -47,6 +47,12 @@ const AGENTS = [
   // échange de jour OFF (mardi <-> mercredi) entre deux agents TERSEA
   { mat: "AG014", nom: "Olga", fonction: "Conseiller client TERSEA", niveau: "Midle", commune: "Ambohi", hist: 0, cells: [OFF, shift("12:00", "21:00"), OFF] },
   { mat: "AG015", nom: "Paul", fonction: "Conseiller client TERSEA", niveau: "Midle", commune: "Bevalo", hist: 0, cells: [OFF, OFF, shift("08:00", "17:00")] },
+  // réserve hors planning (mercredi) : Rina est seule sur l'Axe 3 à 21h ; Sami est déjà sur l'Axe 2 à 21h
+  { mat: "AG016", nom: "Rina", fonction: "CSA Digital", pole: "FO", niveau: "Midle", commune: "Torana", hist: 0, cells: [OFF, OFF, shift("12:00", "21:00")] },
+  { mat: "AG017", nom: "Sami", fonction: "CSA Digital", pole: "FO", niveau: "Midle", commune: "Bevalo", hist: 0, cells: [OFF, OFF, shift("12:00", "21:00")] },
+  // personnes de la liste des agents ABSENTES du planning (cells: null)
+  { mat: "AG018", nom: "Ulrich", fonction: "CSA Digital", pole: "BO", niveau: "Midle", commune: "Belaza", hist: 0, cells: null }, // à égalité avec Tiana et listé avant elle, mais refusé : pôle BO ≠ FO
+  { mat: "AG019", nom: "Tiana", fonction: "CSA Digital", pole: "FO", niveau: "Midle", commune: "Belaza", hist: 0, cells: null }, // remplace Rina
 ];
 
 const AMENAGEMENTS = [{ mat: "AG010", nom: "Jeanne", texte: "Pas de nuit" }];
@@ -59,14 +65,14 @@ async function buildFiles() {
     p,
     "Planning Agents S+1",
     DATES,
-    AGENTS.map((a) => ({ matricule: a.mat, nom: a.nom, cells: a.cells }))
+    AGENTS.filter((a) => a.cells).map((a) => ({ matricule: a.mat, nom: a.nom, cells: a.cells! }))
   );
   files.push({ name: "exemple_planning.xlsx", wb: p });
 
   const ag = new ExcelJS.Workbook();
   const wsA = ag.addWorksheet("Agents");
-  wsA.addRow(["Matricule", "Nom et Prenom", "Fonction", "Commune", "Niveau", "Tardifs historique"]);
-  AGENTS.forEach((a) => wsA.addRow([a.mat, a.nom, a.fonction, a.commune, a.niveau, a.hist]));
+  wsA.addRow(["Matricule", "Nom et Prenom", "Fonction", "Pôles", "Commune", "Niveau", "Tardifs historique"]);
+  AGENTS.forEach((a) => wsA.addRow([a.mat, a.nom, a.fonction, "pole" in a ? a.pole : null, a.commune, a.niveau, a.hist]));
   files.push({ name: "exemple_agents.xlsx", wb: ag });
 
   const ax = new ExcelJS.Workbook();

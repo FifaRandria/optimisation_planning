@@ -136,6 +136,8 @@ export default function FormatGuide({ open }: { open?: boolean }) {
                   <li><span className="req">obligatoire</span> <code>Matricule</code></li>
                   <li><span className="req">obligatoire</span> <code>Fonction</code> : deux agents ne s'échangent que s'ils ont exactement la même fonction. Sans fonction, l'agent est figé.</li>
                   <li><span className="optl">facultatif</span> <code>Axe 21h</code> / <code>Axe 23h</code> : axe direct de l'agent. Sinon, il est déduit de la commune avec la table des axes.</li>
+                  <li><span className="optl">facultatif</span> <code>Pôles</code> (FO / BO / SUPPORT) : deux agents ne s'échangent que s'ils sont du même pôle, quand il est connu des deux côtés. Déposez simplement <code>IT.xlsx</code> : sa colonne « Pôles » est reprise (ainsi que « Etat du collaborateur » et « Date de départ »).</li>
+                  <li><b>Réserve hors planning</b> : les personnes de cette liste qui ne sont <b>pas</b> au planning peuvent remplacer un agent de même fonction et même pôle pour toute la semaine. Elles sont écartées si elles ont un aménagement, un congé cette semaine, sont INACTIF ou parties. La liste est considérée comme fiable : vérifiez chaque remplacement proposé.</li>
                   <li><span className="req">obligatoire</span> (si pas d'axe direct) Commune : <code>Commune</code>, <code>Commune/Fokotany/Repère map</code>, <code>Repère</code> ou <code>Quartier</code>. Si plusieurs sont présentes, elles sont essayées dans cet ordre jusqu'à trouver une correspondance dans la table des axes.</li>
                   <li><span className="optl">facultatif</span> <code>Niveau</code> (ou <code>Statut d'agents</code>) : Perf, Midle, Débutant. Vide = « inconnu ».</li>
                   <li><span className="optl">facultatif</span> <code>Tardifs historique</code> : nombre de shifts tardifs déjà faits (équité).</li>
@@ -210,7 +212,8 @@ export default function FormatGuide({ open }: { open?: boolean }) {
                 <ul>
                   <li><span className="req">obligatoire</span> <code>Matricule</code> et <code>Aménagement</code> (texte libre).</li>
                   <li><span className="optl">facultatif</span> <code>Congé</code> + colonne suivante : dates de début et de fin.</li>
-                  <li>Un agent avec un aménagement est <b>figé</b> : jamais échangé. Si le texte n'est pas compris, une alerte demande de vérifier.</li>
+                  <li>Avant chaque échange, les aménagements des <b>deux personnes</b> sont vérifiés : si l'une des deux a un aménagement, l'échange est refusé. Un agent avec un aménagement est donc <b>figé</b> (il ne cède ni ne reçoit aucune case) et ne peut pas servir de réserve. Si le texte n'est pas compris, une alerte demande de vérifier.</li>
+                  <li>Exception optionnelle (réglage « Échanger les agents avec un rôle seul ») : un aménagement qui n'est qu'un rôle, <code>RENFORT DIGITAL</code> ou <code>TEAM LEAD</code>, sans autre mention. « TEAM LEAD shift AM / OFF samedi » reste figé.</li>
                   <li>Aucun échange n'est fait sur les jours de congé.</li>
                   <li>Si cette feuille porte aussi « Quartier » et « Statut d'agents », elle sert aussi de liste d'agents.</li>
                 </ul>

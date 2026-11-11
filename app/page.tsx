@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import FormatGuide from "@/components/FormatGuide";
 import SettingsPanel from "@/components/Settings";
 import Results from "@/components/Results";
-import { IconAlert, IconBook, IconBus, IconCalendar, IconCheck, IconFile, IconSparkles, IconSwap, IconUpload, IconUsers, IconX } from "@/components/Icons";
+import { IconAlert, IconBook, IconBus, IconCalendar, IconCheck, IconFile, IconShield, IconSparkles, IconSwap, IconUpload, IconUsers, IconX } from "@/components/Icons";
 import { DEFAULT_SETTINGS, type Alert, type DetectedSource, type OptimizationResult, type Settings } from "@/lib/types";
 import { dayLabel } from "@/lib/util";
 
@@ -16,6 +16,10 @@ interface Stats {
   withAxe: number;
   withLevel: number;
   withFunction: number;
+  withPole: number;
+  reserve: number;
+  amenFrozen: number;
+  amenRoleOnly: number;
   functions: number;
   lateShifts: number;
   pickups: number;
@@ -31,7 +35,7 @@ interface Inspect {
 
 const ROLES: { id: DetectedSource["role"]; label: string; required: boolean; help: string }[] = [
   { id: "planning", label: "Planning S+1", required: true, help: "Matricule + dates + heures d'arrivée / de départ" },
-  { id: "agents", label: "Agents et fonctions", required: true, help: "Matricule + Fonction + Axe 21h / Axe 23h ou commune (ex. Personnes-par-fonction)" },
+  { id: "agents", label: "Agents et fonctions", required: true, help: "Matricule + Fonction + Axe 21h / Axe 23h ou commune (ex. Personnes-par-fonction) ; + Pôles (ex. IT.xlsx)" },
   { id: "axes", label: "Table des axes", required: false, help: "Commune → Axe 21h / Axe 23h, chauffeurs, durées" },
   { id: "amenagements", label: "Aménagements et congés", required: false, help: "Matricule + aménagement (+ dates de congé)" },
 ];
@@ -68,7 +72,7 @@ export default function Page() {
       const fd = new FormData();
       if (demo) fd.append("demo", "1");
       else files.forEach((f) => fd.append("files", f, f.name));
-      fd.append("settings", JSON.stringify(withSettings ? settings : { ...DEFAULT_SETTINGS, pickupHours: settings.pickupHours, dropHours: settings.dropHours, axe21Waves: settings.axe21Waves }));
+      fd.append("settings", JSON.stringify(withSettings ? settings : { ...DEFAULT_SETTINGS, pickupHours: settings.pickupHours, dropHours: settings.dropHours, axe21Waves: settings.axe21Waves, swapRoles: settings.swapRoles }));
       return fd;
     },
     [demo, files, settings]
@@ -93,7 +97,7 @@ export default function Page() {
       .catch((e) => seq === inspectSeq.current && setError((e as Error).message))
       .finally(() => seq === inspectSeq.current && setInspecting(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [files, demo, settings.pickupHours, settings.dropHours, settings.axe21Waves]);
+  }, [files, demo, settings.pickupHours, settings.dropHours, settings.axe21Waves, settings.swapRoles]);
 
   // un réglage modifié après un calcul : le résultat affiché n'est plus à jour
   useEffect(() => {
@@ -203,6 +207,14 @@ export default function Page() {
           <div className="rule">
             <span className="ic amber"><IconSwap size={18} /></span>
             <div><h4>Échange jour ↔ OFF</h4><p>Par paire, dans la même semaine : chaque jour reste couvert, chacun garde ses OFF.</p></div>
+          </div>
+          <div className="rule">
+            <span className="ic teal"><IconUsers size={18} /></span>
+            <div><h4>Réserve hors planning</h4><p>Une personne non planifiée, de même fonction et même pôle, peut reprendre la semaine d'un agent.</p></div>
+          </div>
+          <div className="rule">
+            <span className="ic indigo"><IconShield size={18} /></span>
+            <div><h4>Aménagements des 2 personnes</h4><p>Avant chaque échange : si l'une des deux a un aménagement, l'échange est refusé. Les congés bloquent leurs jours.</p></div>
           </div>
         </section>
 
@@ -327,6 +339,29 @@ export default function Page() {
                 <div className="v">{pct(st.withAxe, st.planningAgents)} <small>%</small></div>
                 <Meter value={pct(st.withAxe, st.planningAgents)} />
               </div>
+              <div className="tile">
+                <div className="lbl">Avec un pôle</div>
+                <div className="v">{pct(st.withPole, st.planningAgents)} <small>%</small></div>
+                <Meter value={pct(st.withPole, st.planningAgents)} />
+              </div>
+              <div className="tile">
+                <div className="lbl" style={{ color: "var(--accent)" }}>Réserve hors planning</div>
+                <div className="v">{settings.useReserve ? fmtNum(st.reserve) : "—"}</div>
+                <div className="s">{settings.useReserve ? "personnes mobilisables" : "désactivée dans les réglages"}</div>
+              </div>
+              <div className="tile">
+                <div className="lbl" style={{ color: "var(--warn)" }}>Aménagements</div>
+                <div className="v">{fmtNum(st.amenFrozen)} <small>figé(s)</small></div>
+                <div className="s">{!st.amenRoleOnly ? "jamais échangés" : settings.swapRoles ? `+ ${st.amenRoleOnly} rôle(s) seul(s) libéré(s)` : `dont ${st.amenRoleOnly} rôle(s) seul(s)`}</div>
+              </div>
+            </div>
+          )}
+          {st && settings.useReserve && st.reserve > 0 && (
+            <div className="callout warn">
+              <IconAlert size={16} />
+              <span>
+                <b>{fmtNum(st.reserve)} personne(s) de la liste des agents ne sont pas au planning</b> et pourront remplacer un agent (même fonction, même pôle, semaine entière). Cette liste est considérée comme <b>fiable</b> : si l'une d'elles est en réalité indisponible (formation, congé, départ, autre campagne), le remplacement proposé sera inapplicable. Vérifiez chaque remplacement « à confirmer » avant de diffuser le planning.
+              </span>
             </div>
           )}
           {st && st.withAxe < st.planningAgents && (

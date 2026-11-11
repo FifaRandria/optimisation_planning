@@ -126,6 +126,7 @@ function Synthese({ r }: { r: OptimizationResult }) {
         <div className="guarantee"><IconCheck size={16} /><span>Chacun garde son nombre de jours OFF dans la semaine.</span></div>
         <div className="guarantee"><IconCheck size={16} /><span>Aucun repos de moins de {s.minRestHours} h n'est créé.</span></div>
         <div className="guarantee"><IconCheck size={16} /><span>Congés, codes et agents figés ne bougent pas.</span></div>
+        <div className="guarantee"><IconCheck size={16} /><span>Aménagements vérifiés pour les 2 personnes de chaque échange : aucune personne avec un aménagement n'est échangée{s.swapRoles ? " (sauf rôle seul : RENFORT DIGITAL, TEAM LEAD)" : ""}.</span></div>
         <div className="guarantee"><IconCheck size={16} /><span>« Axe 21h » pour {s.axe21Waves.map((h) => h + "h").join(", ") || "aucune vague"} ; « Axe 23h » pour les autres vagues.</span></div>
       </div>
     </>
@@ -136,13 +137,58 @@ function Synthese({ r }: { r: OptimizationResult }) {
 // Échanges
 // ---------------------------------------------------------------------------
 
-function Person({ s, role }: { s: SwapSide; role: string }) {
+function Person({ s, role, hideChange }: { s: SwapSide; role: string; hideChange?: boolean }) {
   return (
     <div className="person">
       <div className="role-lbl">{role}</div>
       <div className="nm">{s.nom}</div>
-      <div className="meta">{s.matricule} · {s.fonction || "fonction ?"} · {s.commune || "commune ?"} · {s.axe}</div>
-      <div className="chg"><s>{s.before}</s>→<b>{s.after}</b></div>
+      <div className="meta">
+        {s.matricule} · {s.fonction || "fonction ?"}
+        {s.pole ? ` · ${s.pole}` : ""} · {s.commune || "commune ?"} · {s.axe}
+      </div>
+      {!hideChange && <div className="chg"><s>{s.before}</s>→<b>{s.after}</b></div>}
+    </div>
+  );
+}
+
+/** Remplacement par la réserve : la semaine de l'agent remplacé, reprise telle quelle par le remplaçant. */
+function WeekGrid({ s }: { s: Swap }) {
+  // "lun 09/11 OFF · mar 10/11 12:00-21:00" -> [["lun 09/11", "OFF"], ["mar 10/11", "12:00-21:00"]]
+  const days = s.a.before.split(" · ").map((p) => {
+    const t = p.split(" ");
+    return [t.slice(0, 2).join(" "), t.slice(2).join(" ")] as const;
+  });
+  const cls = (v: string) => (v === "OFF" ? "to off" : "to late");
+  return (
+    <div className="offgrid">
+      <table>
+        <thead>
+          <tr>
+            <th>Agent</th>
+            {days.map(([d]) => <th key={d}>{d}</th>)}
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><b>{s.a.nom}</b><div className="muted" style={{ fontSize: 11 }}>passe hors planning</div></td>
+            {days.map(([d, v]) => (
+              <td key={d}>
+                <span className="from">{v}</span>
+                <span className="to off">REMPLACÉ</span>
+              </td>
+            ))}
+          </tr>
+          <tr>
+            <td><b>{s.b.nom}</b><div className="muted" style={{ fontSize: 11 }}>hors planning → remplaçant</div></td>
+            {days.map(([d, v]) => (
+              <td key={d}>
+                <span className="from">—</span>
+                <span className={cls(v)}>{v}</span>
+              </td>
+            ))}
+          </tr>
+        </tbody>
+      </table>
     </div>
   );
 }
@@ -185,7 +231,7 @@ function OffGrid({ s }: { s: Swap }) {
 }
 
 function Echanges({ r }: { r: OptimizationResult }) {
-  const [kind, setKind] = useState<"all" | "jour" | "off">("all");
+  const [kind, setKind] = useState<"all" | Swap["kind"]>("all");
   const [day, setDay] = useState<number | null>(null);
   const [q, setQ] = useState("");
   const plans = useMemo(() => {
@@ -205,6 +251,7 @@ function Echanges({ r }: { r: OptimizationResult }) {
     (!nq || [s.a.nom, s.a.matricule, s.b.nom, s.b.matricule, s.a.fonction, s.planSummary].some((t) => norm(t).includes(nq)));
   const shown = plans.map((p) => p.filter(match)).filter((p) => p.length);
   const nOff = r.swaps.filter((s) => s.kind === "off").length;
+  const nRes = r.swaps.filter((s) => s.kind === "reserve").length;
   const days = [...new Set(r.swaps.map((s) => s.dayIndex))].sort((a, b) => a - b);
 
   return (
@@ -212,8 +259,11 @@ function Echanges({ r }: { r: OptimizationResult }) {
       <div className="toolbar">
         <div className="seg-ctl" role="tablist" aria-label="Type d'échange">
           <button className={kind === "all" ? "on" : ""} onClick={() => setKind("all")}>Tous<span className="c">{r.swaps.length}</span></button>
-          <button className={kind === "jour" ? "on" : ""} onClick={() => setKind("jour")}>Même jour<span className="c">{r.swaps.length - nOff}</span></button>
+          <button className={kind === "jour" ? "on" : ""} onClick={() => setKind("jour")}>Même jour<span className="c">{r.swaps.length - nOff - nRes}</span></button>
           <button className={kind === "off" ? "on" : ""} onClick={() => setKind("off")}>Jour OFF<span className="c">{nOff}</span></button>
+          {(nRes > 0 || r.settings.useReserve) && (
+            <button className={kind === "reserve" ? "on" : ""} onClick={() => setKind("reserve")}>Réserve<span className="c">{nRes}</span></button>
+          )}
         </div>
         <div className="search grow">
           <IconSearch size={15} />
@@ -237,15 +287,21 @@ function Echanges({ r }: { r: OptimizationResult }) {
             <span className="sum">{p[0].planSummary}</span>
             <span className="right">
               {p.some((s) => s.kind === "off") && <span className="badge off"><IconCalendar size={12} />jour OFF</span>}
+              {p.some((s) => s.kind === "reserve") && <span className="badge err"><IconAlert size={12} />réserve · à confirmer</span>}
               <span className="badge ok">−{p[0].vehiclesSaved} véhicule{p[0].vehiclesSaved > 1 ? "s" : ""}</span>
             </span>
           </header>
           {p.map((s) => (
             <div className="swap" key={s.id}>
-              <Person s={s.a} role="Quitte le transport" />
+              <Person s={s.a} role={s.kind === "reserve" ? "Passe hors planning (semaine)" : "Quitte le transport"} hideChange={s.kind === "reserve"} />
               <div className="mid"><span><IconSwap size={16} /></span></div>
-              <Person s={s.b} role={s.kind === "off" ? "Échange son jour OFF" : "Prend le shift"} />
+              <Person
+                s={s.b}
+                role={s.kind === "off" ? "Échange son jour OFF" : s.kind === "reserve" ? "Remplaçant (hors planning)" : "Prend le shift"}
+                hideChange={s.kind === "reserve"}
+              />
               {s.kind === "off" && <OffGrid s={s} />}
+              {s.kind === "reserve" && <WeekGrid s={s} />}
               <details className="why">
                 <summary><IconChevron size={13} />Pourquoi cet échange ?</summary>
                 <div>{s.reason}</div>
@@ -316,7 +372,8 @@ function PlanningView({ r }: { r: OptimizationResult }) {
                   <td className="sticky">
                     <b>{a.nom}</b> <span className="muted">{a.matricule}</span>
                     {a.frozen && <span className="frozen-tag" title={a.frozen}>figé</span>}
-                    <div className="muted" style={{ fontSize: 11 }}>{a.fonction || "fonction ?"} · {a.axe}</div>
+                    {a.reserve && <span className="frozen-tag" style={{ background: "var(--accent-soft)", color: "var(--accent)" }} title="Personne hors planning ajoutée comme remplaçant : disponibilité à confirmer">réserve</span>}
+                    <div className="muted" style={{ fontSize: 11 }}>{a.fonction || "fonction ?"}{a.pole ? ` · ${a.pole}` : ""} · {a.axe}</div>
                   </td>
                   {r.after[i].map((c, d) => (
                     <td key={d} className={cellClass(c, r.changed[i][d], r.settings) + (wk[d] ? " wk" : "")}>
@@ -435,6 +492,10 @@ const ALERT_LABELS: Record<string, string> = {
   "fonction-seule": "Fonction sans partenaire",
   "fonction-planning": "Fonction du planning",
   "jonction-semaine": "Jonction de semaine",
+  reserve: "Réserve hors planning",
+  "reserve-a-confirmer": "Remplacement à confirmer",
+  "pole-inconnu": "Pôle inconnu",
+  "amenagement-role": "Rôle seul (échangeable)",
 };
 
 function Alertes({ alerts }: { alerts: Alert[] }) {
@@ -482,6 +543,7 @@ export default function Results({ r, stale }: { r: OptimizationResult; stale?: b
   const saved = mb.vehicles - ma.vehicles;
   const pctSaved = mb.vehicles ? (saved / mb.vehicles) * 100 : 0;
   const nOff = r.swaps.filter((s) => s.kind === "off").length;
+  const nRes = r.swaps.filter((s) => s.kind === "reserve").length;
   const nAgents = r.changed.filter((row) => row.some(Boolean)).length;
 
   async function download(kind: string) {
@@ -546,6 +608,14 @@ export default function Results({ r, stale }: { r: OptimizationResult; stale?: b
           <span>Les réglages ont changé depuis ce calcul : cliquez sur <b>Optimiser</b> pour mettre le résultat à jour.</span>
         </div>
       )}
+      {nRes > 0 && (
+        <div className="callout warn" style={{ marginTop: 0, marginBottom: 16 }}>
+          <IconAlert size={16} />
+          <span>
+            <b>{nRes} remplacement{nRes > 1 ? "s" : ""} par des personnes hors planning</b> : à confirmer avant diffusion. Chaque remplaçant a été pris dans la liste des agents, considérée comme fiable. S'il est en réalité indisponible, gardez l'agent d'origine pour cette semaine (le véhicule correspondant ne sera alors pas économisé). Détail : onglet Échanges, filtre « Réserve ».
+          </span>
+        </div>
+      )}
 
       <div className="hero">
         <div className={"gain" + (saved > 0 ? "" : " none")}>
@@ -557,7 +627,11 @@ export default function Results({ r, stale }: { r: OptimizationResult; stale?: b
           <Kpi label="Ramassage" icon={<span style={{ color: "var(--pickup)" }}>●</span>} before={mb.pickupVehicles} after={ma.pickupVehicles} sub={`véhicules à ${r.settings.pickupHours.map((h) => h + "h").join(", ") || "—"}`} />
           <Kpi label="Remisage" icon={<span style={{ color: "var(--drop)" }}>●</span>} before={mb.dropVehicles} after={ma.dropVehicles} sub="véhicules de 18h à 23h" />
           <Kpi label="Remplissage" before={mb.avgPerVehicle.toFixed(1)} after={ma.avgPerVehicle.toFixed(1)} sub={`pers./véhicule · ≤ 4 pers. : ${mb.smallVehicles} → ${ma.smallVehicles}`} />
-          <Kpi label="Échanges" after={fmtNum(r.swaps.length)} sub={<>{nOff} échange{nOff > 1 ? "s" : ""} de jour OFF · {nAgents} agents concernés</>} />
+          <Kpi
+            label="Échanges"
+            after={fmtNum(r.swaps.length)}
+            sub={<>{nOff} jour OFF · {nRes} remplacement{nRes > 1 ? "s" : ""} par la réserve · {nAgents} agents concernés</>}
+          />
         </div>
       </div>
 

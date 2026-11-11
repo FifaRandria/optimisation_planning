@@ -448,3 +448,5 @@ details.why > div { margin-top: 6px; font-size: 12.5px; color: var(--muted); bac
   .search { min-width: 0; width: 100%; }
 }
 @media (max-width: 640px) { .actionbar .btn.ghost { display: none; } }
+
+.rules { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }

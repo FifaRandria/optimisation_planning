@@ -39,7 +39,7 @@ function sheetPlanning(wb: ExcelJS.Workbook, r: OptimizationResult) {
   const rows = r.agents.map((a, i) => ({ matricule: a.matricule, nom: a.nom, cells: r.after[i].map(cellValue) }));
   const ws = addPlanningSheet(wb, "Planning Agents S+1", r.dates, rows, r.changed);
   const n = ws.rowCount + 2;
-  ws.getCell(n, 2).value = "Cases en jaune = shift modifié par l'optimisation (voir la feuille « Échanges »).";
+  ws.getCell(n, 2).value = "Cases en jaune = case modifiée par l'optimisation (voir la feuille « Échanges »). « REMPLACÉ » = agent remplacé toute la semaine par une personne hors planning, ajoutée en bas du planning (disponibilité à confirmer).";
   ws.getCell(n, 2).font = { italic: true };
 }
 
@@ -71,7 +71,7 @@ function sheetEchanges(wb: ExcelJS.Workbook, r: OptimizationResult) {
     ws.addRow([
       s.id,
       s.planId,
-      s.kind === "off" ? "Jour OFF" : "Même jour",
+      s.kind === "off" ? "Jour OFF" : s.kind === "reserve" ? "Remplacement (réserve) — à confirmer" : "Même jour",
       dayLabel(s.date),
       s.date2 ? dayLabel(s.date2) : "",
       s.planSummary,

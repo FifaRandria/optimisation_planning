@@ -131,7 +131,8 @@ function parseCell(a: unknown, d: unknown): Cell {
   const nd = norm(sd);
   // seul un vrai OFF est échangeable ; RC (repos compensateur), Récup, CM, C… restent figés
   const isOff = (n: string) => n === "off" || n === "repos";
-  if ((isOff(na) || !na) && (isOff(nd) || !nd)) return { k: "off", raw: sa || sd };
+  // OFF seulement si une moitié dit OFF et l'autre est OFF ou vide (« - » n'est pas un OFF : case figée)
+  if ((isOff(na) && (isOff(nd) || !sd)) || (isOff(nd) && !sa)) return { k: "off", raw: sa || sd };
   const LEAVE = /^(conge|conges|cp|cge|cong|cm|c|rc|recup|recuperation|maladie|absent|abs)$/;
   if (LEAVE.test(na) || LEAVE.test(nd) || /^conge/.test(na)) return { k: "leave", raw: sa || sd };
   const ta = parseTime(a);
@@ -170,6 +171,9 @@ interface AgentsLayout {
   histCol: number;
   fonctionCol: number;
   axeCols: { col: number; key: string }[]; // « Axe 21h » -> "21h"
+  poleCol: number; // « Pôles » (IT.xlsx) : FO / BO / SUPPORT
+  etatCol: number; // « Etat du collaborateur » : ACTIF / INACTIF
+  departCol: number; // « Date de départ »
 }
 
 export { axeKey } from "./util";
@@ -194,6 +198,9 @@ function detectAgentsLayout(rows: Rows): AgentsLayout | null {
     prio.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
     const niveauCol = findCol(row, (n) => NIVEAU_HEADERS.includes(n));
     const fonctionCol = findCol(row, (n) => n === "fonction" || n === "poste");
+    const poleCol = findCol(row, (n) => n === "pole" || n === "poles");
+    const etatCol = findCol(row, (n) => n.startsWith("etat du collab") || n === "etat");
+    const departCol = findCol(row, (n) => n === "date de depart");
     const axeCols: { col: number; key: string }[] = [];
     row.forEach((v, c) => {
       const k = axeKey(v);
@@ -203,7 +210,7 @@ function detectAgentsLayout(rows: Rows): AgentsLayout | null {
     let nomCol = findCol(row, (n) => n.startsWith("nom"));
     if (nomCol < 0) nomCol = -1;
     const histCol = findCol(row, (n) => n.includes("historique") || n.includes("tardif"));
-    return { headerRow: h, matCol, nomCol, communeCols: prio.map((p) => p[1]), niveauCol, histCol, fonctionCol, axeCols };
+    return { headerRow: h, matCol, nomCol, communeCols: prio.map((p) => p[1]), niveauCol, histCol, fonctionCol, axeCols, poleCol, etatCol, departCol };
   }
   return null;
 }
@@ -232,6 +239,9 @@ function readAgents(rows: Rows, l: AgentsLayout): AgentInfo[] {
       historique: l.histCol >= 0 ? Math.max(0, Math.round(toNumber(row[l.histCol]) ?? 0)) : 0,
       fonction: l.fonctionCol >= 0 && !isBlank(row[l.fonctionCol]) ? str(row[l.fonctionCol]) : undefined,
       axes: Object.keys(axes).length ? axes : undefined,
+      pole: l.poleCol >= 0 && !isBlank(row[l.poleCol]) ? str(row[l.poleCol]).toUpperCase() : undefined,
+      actif: l.etatCol >= 0 && !isBlank(row[l.etatCol]) ? norm(row[l.etatCol]) !== "inactif" : undefined,
+      dateDepart: l.departCol >= 0 ? parseDate(row[l.departCol]) ?? undefined : undefined,
     });
   }
   return out;
@@ -422,7 +432,7 @@ export function parseWorkbooks(files: UploadedFile[]): ParsedInputs {
       if (ax && !pl) axeCands.push({ score: (nn === "axes" ? 1000 : 0) + (ax.dureeCol >= 0 ? 100 : 0) + ax.axeCols.length * 10 + ax.driverCols.length, file: f.name, sheet: name, layout: ax });
       const ag = detectAgentsLayout(rows);
       // priorité à la liste qui porte la fonction exacte et les axes (Personnes-par-fonction)
-      if (ag && !pl && !ax) agentCands.push({ score: 1 + (ag.fonctionCol >= 0 ? 10 : 0) + (ag.axeCols.length ? 10 : 0) + (nn.includes("plat") ? 5 : 0), file: f.name, sheet: name, layout: ag });
+      if (ag && !pl && !ax) agentCands.push({ score: 1 + (ag.fonctionCol >= 0 ? 10 : 0) + (ag.axeCols.length ? 10 : 0) + (nn.includes("plat") ? 5 : 0) + (nn === "base" ? 3 : 0), file: f.name, sheet: name, layout: ag });
       const am = detectAmenLayout(rows);
       if (am && !pl) amenCands.push({ score: 1, file: f.name, sheet: name, layout: am });
     });
@@ -468,15 +478,28 @@ export function parseWorkbooks(files: UploadedFile[]): ParsedInputs {
     if (cur.niveau === "INCONNU") cur.niveau = a.niveau;
     if (!cur.fonction && a.fonction) cur.fonction = a.fonction;
     if (a.axes) cur.axes = { ...a.axes, ...(cur.axes ?? {}) };
+    if (!cur.pole && a.pole) cur.pole = a.pole;
+    // état et date de départ : ceux de la 1re feuille qui les donne (BASE passe avant MOUVEMENT / DEPART)
+    if (cur.actif === undefined && a.actif !== undefined) {
+      cur.actif = a.actif;
+      cur.dateDepart = a.dateDepart;
+    }
+    if (a.mainList) cur.mainList = true;
     if (!cur.nom && a.nom) cur.nom = a.nom;
     cur.historique = Math.max(cur.historique, a.historique);
   };
   agentCands.sort((a, b) => b.score - a.score);
+  let mainDone = false;
   for (const c of agentCands) {
     const rows = loadSheet(c.file, c.sheet);
     const lay = detectAgentsLayout(rows) ?? c.layout;
     const list = readAgents(rows, lay);
     if (list.length === 0) continue;
+    // la feuille la mieux notée (ex. Personnes-par-fonction) est la liste principale : source de la réserve hors planning
+    if (!mainDone) {
+      list.forEach((a) => (a.mainList = true));
+      mainDone = true;
+    }
     list.forEach(mergeAgent);
     const withCommune = list.filter((a) => a.communes.length).length;
     const withLevel = list.filter((a) => a.niveau !== "INCONNU").length;
@@ -485,6 +508,8 @@ export function parseWorkbooks(files: UploadedFile[]): ParsedInputs {
     const parts = [`${withCommune} avec commune`];
     if (withFn) parts.push(`${withFn} avec fonction`);
     if (withAx) parts.push(`${withAx} avec axe`);
+    const withPole = list.filter((a) => a.pole).length;
+    if (withPole) parts.push(`${withPole} avec pôle`);
     parts.push(`${withLevel} avec niveau`);
     detection.push({ role: "agents", file: c.file, sheet: c.sheet, rows: list.length, note: parts.join(", ") });
   }
