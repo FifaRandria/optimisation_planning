@@ -206,4 +206,5 @@ export interface OptimizationResult {
   alerts: Alert[];
   detection: DetectedSource[];
   generatedAt: string;
+  historyId?: number; // id dans l'historique (base de données)
 }

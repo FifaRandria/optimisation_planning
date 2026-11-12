@@ -1,0 +1,63 @@
+# Optimiseur de transport : application + PostgreSQL
+#   make init   → crée .env (mot de passe de la base généré)
+#   make up     → construit et démarre, puis attend que tout soit prêt
+# Variables lues dans .env (voir .env.example).
+
+name: transport-optimizer
+
+x-db-env: &db-env
+  POSTGRES_DB: transport_optimizer
+  POSTGRES_USER: transport_app
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD manquant dans .env (lancez make init)}
+
+services:
+  db:
+    image: postgres:18.0-alpine
+    restart: unless-stopped
+    environment:
+      <<: *db-env
+    volumes:
+      # PostgreSQL 18+ : le volume se monte sur /var/lib/postgresql
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U transport_app -d transport_optimizer"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    # pas de port publié : la base n'est joignable que par l'application
+
+  app:
+    build: .
+    image: transport-optimizer:latest
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://transport_app:${POSTGRES_PASSWORD}@db:5432/transport_optimizer
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-Admin@2026!}
+      SESSION_TTL_HOURS: ${SESSION_TTL_HOURS:-12}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+    ports:
+      - "${APP_PORT:-3000}:3000"
+
+  # Développement : la même base, publiée sur 127.0.0.1:5433 pour « npm run dev » sur le poste.
+  # Démarrée seulement avec le profil dev (make dev-db). Ne pas lancer en même temps que « db ».
+  db-dev:
+    profiles: ["dev"]
+    image: postgres:18.0-alpine
+    environment:
+      <<: *db-env
+    volumes:
+      - pgdata:/var/lib/postgresql
+    ports:
+      - "127.0.0.1:${DEV_DB_PORT:-5433}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U transport_app -d transport_optimizer"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  pgdata:

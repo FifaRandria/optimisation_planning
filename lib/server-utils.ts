@@ -15,12 +15,18 @@ export async function readFilesFromForm(form: FormData): Promise<UploadedFile[]>
 
 export function readSettings(form: FormData): Settings {
   const raw = form.get("settings");
-  let s: Partial<Settings> = {};
+  let s: unknown = {};
   try {
     if (typeof raw === "string" && raw) s = JSON.parse(raw);
   } catch {
     /* réglages par défaut */
   }
+  return sanitizeSettings(s);
+}
+
+/** Valide et borne des réglages reçus du client (valeurs absentes ou invalides = défaut). */
+export function sanitizeSettings(input: unknown): Settings {
+  const s = (input && typeof input === "object" ? input : {}) as Partial<Settings>;
   const num = (v: unknown, d: number, min: number, max: number) => {
     const n = Number(v);
     return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : d;

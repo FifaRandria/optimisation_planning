@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import { buildExport, type ExportKind } from "@/lib/export";
 import type { OptimizationResult } from "@/lib/types";
+import { errorResponse, requireUser } from "@/lib/server/auth";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 const NAMES: Record<ExportKind, string> = {
@@ -14,6 +16,7 @@ const NAMES: Record<ExportKind, string> = {
 
 export async function POST(req: Request) {
   try {
+    await requireUser();
     const { result, kind } = (await req.json()) as { result: OptimizationResult; kind: ExportKind };
     if (!result || !NAMES[kind]) return NextResponse.json({ error: "Requête invalide." }, { status: 400 });
     const buf = await buildExport(result, kind);
@@ -24,6 +27,6 @@ export async function POST(req: Request) {
       },
     });
   } catch (e) {
-    return NextResponse.json({ error: (e as Error).message }, { status: 500 });
+    return errorResponse(e);
   }
 }

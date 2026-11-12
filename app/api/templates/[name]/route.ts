@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import { buildTemplate, type TemplateName } from "@/lib/templates";
+import { errorResponse, requireUser } from "@/lib/server/auth";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 const FILES: Record<TemplateName, string> = {
   planning: "modele-planning",
@@ -11,6 +13,11 @@ const FILES: Record<TemplateName, string> = {
 };
 
 export async function GET(req: Request, { params }: { params: { name: string } }) {
+  try {
+    await requireUser();
+  } catch (e) {
+    return errorResponse(e);
+  }
   const name = params.name as TemplateName;
   if (!FILES[name]) return NextResponse.json({ error: "Modèle inconnu." }, { status: 404 });
   const full = new URL(req.url).searchParams.get("full") === "1";

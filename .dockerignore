@@ -1,0 +1,26 @@
+# Jamais dans l'image : dépendances / build locaux, secrets et données confidentielles
+node_modules
+.next
+out
+.git
+.gitignore
+*.tsbuildinfo
+next-env.d.ts
+
+.env
+.env.*
+!.env.example
+
+docs
+*.xlsx
+*.xlsm
+*.xls
+*.csv
+*.zip
+backups
+
+Dockerfile
+docker-compose*.yml
+Makefile
+README.md
+.claude

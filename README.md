@@ -6,13 +6,89 @@ Un véhicule coûte le même prix qu'il transporte 1 ou 15 personnes. Quand un a
 
 ---
 
-## Démarrage
+## Démarrage avec Docker (recommandé)
+
+L'application et sa base PostgreSQL tournent dans deux conteneurs, décrits dans `docker-compose.yml`. Le `Makefile` regroupe les commandes. Le même fichier sert en local et sur un serveur.
+
+### 1. Installer Docker Engine et `make` (une seule fois)
+Sous Windows, on utilise **WSL2 avec Ubuntu**, sans Docker Desktop : celui-ci est payant pour les entreprises de plus de 250 salariés. Dans le terminal **Ubuntu** :
+
+```bash
+sudo apt-get update && sudo apt-get install -y ca-certificates curl make openssl
+sudo install -m 0755 -d /etc/apt/keyrings
+sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo $VERSION_CODENAME) stable" \
+  | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+sudo apt-get update && sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+sudo usermod -aG docker $USER      # puis fermer et rouvrir le terminal Ubuntu
+docker run --rm hello-world        # vérification
+```
+
+Sur un serveur Linux (Ubuntu / Debian), ce sont les mêmes commandes.
+
+### 2. Lancer l'application
+```bash
+cd /mnt/e/projet/connecteo/transportv1   # le dossier du projet, vu depuis WSL
+make init    # crée .env (mot de passe PostgreSQL généré) ; ajustez ADMIN_PASSWORD si besoin
+make up      # construit l'image, démarre la base + l'application, attend qu'elles soient prêtes
+```
+Ouvrez http://localhost:3000 dans Windows. Première connexion : identifiant `admin`, mot de passe `ADMIN_PASSWORD` de `.env` (`Admin@2026!` par défaut). Il doit être changé immédiatement.
+
+### Commandes utiles (`make help`)
+| Commande | Effet |
+|---|---|
+| `make up` / `make down` | démarrer (ou mettre à jour après une modification du code) / arrêter. Les données sont conservées. |
+| `make logs` / `make logs s=db` / `make ps` | journaux de l'application ou de la base, état des services |
+| `make backup` | sauvegarde de la base dans `backups/AAAA-MM-JJ_HHMM.sql.gz` (dossier non versionné) |
+| `make restore f=backups/….sql.gz` | restauration, avec confirmation : remplace les données actuelles |
+| `make psql` | console SQL |
+| `make dev-db` puis `make dev` | développement : base en conteneur sur `127.0.0.1:5433`, Next.js sur le poste avec rechargement à chaud |
+| `make test` | tests de l'algorithme (Node.js requis sur le poste) |
+| `make clean` | supprime la base (double confirmation) |
+
+### Ce que contient l'image
+- Next.js en mode `standalone`, exécuté par un utilisateur sans privilèges.
+- Un healthcheck sur `/api/health` : il vérifie la base et crée le schéma et l'admin initial au premier démarrage.
+- **Aucune donnée réelle** : `.dockerignore` exclut `docs/`, les fichiers Excel ou CSV et les `.env`.
+- La base n'est pas exposée hors de Docker. Le mot de passe de l'utilisateur dédié `transport_app` n'existe que dans `.env`.
+
+### Déployer sur un serveur
+1. Installer Docker Engine (commandes ci-dessus), copier le projet (`git clone`), puis lancer `make init`.
+2. Placer un reverse proxy HTTPS (Caddy ou Nginx) devant le port de l'application, et mettre `COOKIE_SECURE=true` dans `.env`.
+3. Lancer `make up`, puis programmer `make backup` (cron) et conserver les sauvegardes hors du serveur.
+
+## Démarrage sans Docker
+
+Prérequis : Node.js 20+ et un **PostgreSQL** accessible.
 
 ```bash
 npm install
-npm run dev            # http://localhost:3000
+cp .env.example .env.local   # puis renseigner DATABASE_URL (utilisateur / mot de passe PostgreSQL)
+npm run db:init              # crée la base, les tables et l'administrateur initial
+npm run dev                  # http://localhost:3000
 ```
 
+Première connexion : identifiant `admin`, mot de passe `ADMIN_PASSWORD` de `.env.local` (`Admin@2026!` par défaut). Il doit être changé immédiatement.
+
+### Comptes, rôles et pages
+| Page | Utilisateur | Administrateur |
+|---|---|---|
+| Tableau de bord | ses optimisations | toute l'équipe + comptes + classement par utilisateur |
+| Nouvelle optimisation | réglages autorisés par l'admin seulement | tous les réglages |
+| Historique (liste, fiche, ré-export Excel) | les siennes | toutes |
+| Guide des fichiers | ✓ | ✓ |
+| Mon compte (changer son mot de passe) | ✓ | ✓ |
+| Administration › Utilisateurs | — | créer (mot de passe par défaut ou généré), rôle, désactiver, réinitialiser, supprimer |
+| Administration › Réglages | — | valeurs par défaut de l'organisation + **réglages visibles par les utilisateurs** |
+
+- **Mot de passe provisoire** (admin initial, compte créé, mot de passe réinitialisé) : changement **obligatoire** à la première connexion. Avant, l'application et ses API sont bloquées.
+- **Mots de passe** : au moins 10 caractères, minuscules, majuscules et un chiffre. Ils sont hachés avec scrypt et salés.
+- **Sessions** : cookie httpOnly, sessions stockées en base et révoquées au changement ou à la réinitialisation du mot de passe, ou à la désactivation du compte. 5 échecs de connexion de suite verrouillent l'identifiant pendant 5 minutes.
+- **Réglages masqués** : un utilisateur ne voit ni ne modifie les réglages masqués (par défaut : règles d'échange, équité, niveau). Le serveur leur applique toujours la valeur de l'organisation, même si la requête en contient une autre.
+- **Garde-fous** : il reste toujours au moins un administrateur actif, et un admin ne peut ni se rétrograder ni supprimer son propre compte.
+- **Données** : l'historique conserve le résultat complet (compressé) dans PostgreSQL. Il contient des noms d'agents : la base est confidentielle, comme les fichiers d'entrée.
+
+### Utilisation
 1. Déposer les fichiers Excel, ou cliquer « Essayer avec des données d'exemple ».
 2. Vérifier ce que l'outil a détecté et ajuster les réglages.
 3. Cliquer « Optimiser ». On obtient la synthèse avant/après, les échanges proposés, le planning corrigé (cases modifiées en jaune), les listes de transport par axe et par chauffeur, et les alertes.
@@ -201,8 +277,13 @@ Limite connue : le repos avec la veille du premier jour (semaine précédente, a
 ## Organisation du code
 
 ```
-app/                    page Next.js + routes API (inspect, optimize, export, templates)
-components/             écran : réglages, résultats, guide des formats
+app/login               page de connexion
+app/(app)/              pages protégées : tableau de bord, optimiser, historique, guide, compte, admin/*
+app/api/                routes API : auth, me, users, settings, history, inspect, optimize, export, templates
+components/             écran : coquille (navigation), optimisation, résultats, réglages, administration
+lib/server/             serveur uniquement : PostgreSQL (db), mots de passe, sessions, comptes, réglages, historique
+lib/settings-meta.ts    groupes de réglages et visibilité par défaut pour les utilisateurs
+scripts/db-init.ts      création de la base, des tables et de l'admin initial (npm run db:init)
 lib/parse.ts            détection automatique des feuilles et lecture des fichiers Excel
 lib/waves.ts            vagues de ramassage / remisage (partagé serveur et écran)
 lib/optimize.ts         algorithme d'optimisation

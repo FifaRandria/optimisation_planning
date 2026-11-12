@@ -1,0 +1,7 @@
+# Fichiers lus par Linux / Docker : toujours en LF (même avec core.autocrlf=true sous Windows)
+Makefile text eol=lf
+Dockerfile text eol=lf
+*.yml text eol=lf
+*.sh text eol=lf
+.env.example text eol=lf
+.dockerignore text eol=lf

@@ -18,6 +18,10 @@ docs/*
 # Archives et fichiers locaux
 *.zip
 .env*
+!.env.example
 .DS_Store
 Thumbs.db
 ~$*
+
+# Sauvegardes de la base (make backup) : données confidentielles
+backups/

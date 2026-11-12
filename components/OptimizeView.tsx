@@ -1,11 +1,13 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
-import FormatGuide from "@/components/FormatGuide";
 import SettingsPanel from "@/components/Settings";
 import Results from "@/components/Results";
-import { IconAlert, IconBook, IconBus, IconCalendar, IconCheck, IconFile, IconShield, IconSparkles, IconSwap, IconUpload, IconUsers, IconX } from "@/components/Icons";
-import { DEFAULT_SETTINGS, type Alert, type DetectedSource, type OptimizationResult, type Settings } from "@/lib/types";
+import { PageHeader } from "@/components/AppShell";
+import { IconAlert, IconArrowRight, IconBook, IconCalendar, IconCheck, IconFile, IconHistory, IconLock, IconSparkles, IconUpload, IconUsers, IconX } from "@/components/Icons";
+import type { Alert, DetectedSource, OptimizationResult, Settings } from "@/lib/types";
+import type { SettingKey, SettingsView } from "@/lib/settings-meta";
 import { dayLabel } from "@/lib/util";
 
 interface Stats {
@@ -51,13 +53,15 @@ function Meter({ value }: { value: number }) {
   );
 }
 
-export default function Page() {
+export default function OptimizeView({ view }: { view: SettingsView }) {
+  const isAdmin = view.role === "admin";
+  const show = (k: SettingKey) => isAdmin || view.userVisible.includes(k);
   const [files, setFiles] = useState<File[]>([]);
   const [demo, setDemo] = useState(false);
   const [over, setOver] = useState(false);
   const [inspect, setInspect] = useState<Inspect | null>(null);
   const [inspecting, setInspecting] = useState(false);
-  const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
+  const [settings, setSettings] = useState<Settings>(view.values);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<OptimizationResult | null>(null);
@@ -72,7 +76,7 @@ export default function Page() {
       const fd = new FormData();
       if (demo) fd.append("demo", "1");
       else files.forEach((f) => fd.append("files", f, f.name));
-      fd.append("settings", JSON.stringify(withSettings ? settings : { ...DEFAULT_SETTINGS, pickupHours: settings.pickupHours, dropHours: settings.dropHours, axe21Waves: settings.axe21Waves, swapRoles: settings.swapRoles }));
+      fd.append("settings", JSON.stringify(withSettings ? settings : { ...view.values, pickupHours: settings.pickupHours, dropHours: settings.dropHours, axe21Waves: settings.axe21Waves, swapRoles: settings.swapRoles }));
       return fd;
     },
     [demo, files, settings]
@@ -167,56 +171,24 @@ export default function Page() {
 
   return (
     <>
-      <header className="topbar">
-        <div className="wrap">
-          <div className="brand">
-            <div className="logo"><IconBus size={20} /></div>
-            <div>
-              <h1>Optimiseur de transport<span className="version">v2</span></h1>
-              <p>Moins de véhicules, même couverture : on échange les cases entre agents de même fonction.</p>
-            </div>
-          </div>
-          <nav className="stepper" aria-label="Étapes">
-            {["Fichiers", "Réglages", "Résultat"].map((l, i) => (
-              <span key={l} style={{ display: "contents" }}>
-                {i > 0 && <span className="stp-sep" />}
-                <span className={"stp" + (step === i + 1 ? " active" : step > i + 1 ? " done" : "")}>
-                  <span className="n">{step > i + 1 ? <IconCheck size={13} /> : i + 1}</span>
-                  <span className="lbl">{l}</span>
+      <div className="page">
+        <PageHeader
+          title="Nouvelle optimisation"
+          subtitle="Moins de véhicules, même couverture : on échange les cases entre agents de même fonction."
+          actions={
+            <nav className="stepper" aria-label="Étapes">
+              {["Fichiers", "Réglages", "Résultat"].map((l, i) => (
+                <span key={l} style={{ display: "contents" }}>
+                  {i > 0 && <span className="stp-sep" />}
+                  <span className={"stp" + (step === i + 1 ? " active" : step > i + 1 ? " done" : "")}>
+                    <span className="n">{step > i + 1 ? <IconCheck size={13} /> : i + 1}</span>
+                    <span className="lbl">{l}</span>
+                  </span>
                 </span>
-              </span>
-            ))}
-          </nav>
-        </div>
-      </header>
-
-      <main className="wrap">
-        <section className="rules" aria-label="Règles appliquées">
-          <div className="rule">
-            <span className="ic indigo"><IconUsers size={18} /></span>
-            <div><h4>Même fonction</h4><p>Deux agents ne s'échangent que s'ils ont exactement la même fonction.</p></div>
-          </div>
-          <div className="rule">
-            <span className="ic sky"><IconBus size={18} /></span>
-            <div><h4>Vagues réelles</h4><p>Ramassage des arrivées à 6h ; remisage des sorties de 18h à 23h, une vague par heure.</p></div>
-          </div>
-          <div className="rule">
-            <span className="ic violet"><IconCalendar size={18} /></span>
-            <div><h4>Axe selon la vague</h4><p>« Axe 21h » pour 21h et 22h ; « Axe 23h » pour 6h, 18h, 19h, 20h et 23h.</p></div>
-          </div>
-          <div className="rule">
-            <span className="ic amber"><IconSwap size={18} /></span>
-            <div><h4>Échange jour ↔ OFF</h4><p>Par paire, dans la même semaine : chaque jour reste couvert, chacun garde ses OFF.</p></div>
-          </div>
-          <div className="rule">
-            <span className="ic teal"><IconUsers size={18} /></span>
-            <div><h4>Réserve hors planning</h4><p>Une personne non planifiée, de même fonction et même pôle, peut reprendre la semaine d'un agent.</p></div>
-          </div>
-          <div className="rule">
-            <span className="ic indigo"><IconShield size={18} /></span>
-            <div><h4>Aménagements des 2 personnes</h4><p>Avant chaque échange : si l'une des deux a un aménagement, l'échange est refusé. Les congés bloquent leurs jours.</p></div>
-          </div>
-        </section>
+              ))}
+            </nav>
+          }
+        />
 
         <div className="card">
           <div className="card-head">
@@ -380,7 +352,16 @@ export default function Page() {
           )}
         </div>
 
-        <FormatGuide open={!hasInput} />
+        {!hasInput && (
+          <Link href="/guide" className="link-card">
+            <span className="ic indigo"><IconBook size={18} /></span>
+            <span>
+              <b>Quels fichiers déposer, et à quoi doivent-ils ressembler ?</b>
+              <small>Règles appliquées, colonnes reconnues et modèles Excel à télécharger.</small>
+            </span>
+            <IconArrowRight size={18} />
+          </Link>
+        )}
 
         <div className="card" ref={settingsRef}>
           <div className="card-head">
@@ -388,12 +369,18 @@ export default function Page() {
               <span className="num">2</span>
               <div>
                 <h2>Réglages</h2>
-                <p>Les valeurs par défaut suivent les directives v2. Ne les modifiez que si l'organisation change.</p>
+                <p>Valeurs par défaut de l'organisation{isAdmin ? " (modifiables dans Administration › Réglages)" : ""}. Ne les changez que pour ce calcul.</p>
               </div>
             </div>
-            <button className="btn ghost small" onClick={() => setSettings(DEFAULT_SETTINGS)}>Rétablir les valeurs par défaut</button>
+            <button className="btn ghost small" onClick={() => setSettings(view.values)}>Rétablir les valeurs par défaut</button>
           </div>
-          <SettingsPanel settings={settings} onChange={setSettings} />
+          {!isAdmin && (
+            <div className="callout info" style={{ marginTop: 0, marginBottom: 14 }}>
+              <IconLock size={16} />
+              <span>Certains réglages (règles d'échange, équité…) sont fixés par l'administrateur et appliqués automatiquement.</span>
+            </div>
+          )}
+          <SettingsPanel settings={settings} onChange={setSettings} show={show} />
           {error && (
             <div className="callout err">
               <IconAlert size={16} />
@@ -402,8 +389,18 @@ export default function Page() {
           )}
         </div>
 
-        <div ref={resultRef} style={{ scrollMarginTop: 80 }}>{result && <Results r={result} stale={stale} />}</div>
-      </main>
+        <div ref={resultRef} style={{ scrollMarginTop: 24 }}>
+          {result?.historyId && (
+            <div className="callout ok" style={{ marginTop: 18 }}>
+              <IconHistory size={16} />
+              <span>
+                Optimisation enregistrée dans l'historique. <Link href={`/historique/${result.historyId}`}>Ouvrir la fiche n° {result.historyId}</Link>
+              </span>
+            </div>
+          )}
+          {result && <Results r={result} stale={stale} />}
+        </div>
+      </div>
 
       <div className="actionbar">
         <div className="wrap">
@@ -412,7 +409,7 @@ export default function Page() {
             <span className="txt">{statusTxt}</span>
           </div>
           {!hasInput && (
-            <a className="btn ghost" href="#guide"><IconBook size={16} />Format des fichiers</a>
+            <Link className="btn ghost" href="/guide"><IconBook size={16} />Format des fichiers</Link>
           )}
           <button className="btn primary big" disabled={!ready || running} onClick={run}>
             {running ? <><span className="spinner" />Optimisation…</> : result && !stale ? <><IconSparkles size={17} />Relancer</> : <><IconSparkles size={17} />Optimiser</>}
