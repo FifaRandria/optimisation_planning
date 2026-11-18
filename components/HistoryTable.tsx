@@ -100,7 +100,7 @@ export default function HistoryTable({ items, isAdmin }: { items: HistoryItem[];
                   </td>
                   {isAdmin && <td>{i.userName ?? <span className="muted">compte supprimé</span>}</td>}
                   <td className="c">{i.agents}</td>
-                  <td className="c">{i.vehiclesBefore} → <b>{i.vehiclesAfter}</b></td>
+                  <td className="c">{i.vehiclesBefore} → <b>{i.vehiclesAfter}</b>{i.version > 0 && <span className="version" title="Dernière version du planning modifié à la main">v{i.version}</span>}</td>
                   <td className="c"><span className="badge ok">−{gain.toFixed(1)} %</span></td>
                   <td className="c">
                     {i.swaps}

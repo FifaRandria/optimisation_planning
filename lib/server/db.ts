@@ -68,6 +68,26 @@ CREATE TABLE IF NOT EXISTS optimizations (
 );
 CREATE INDEX IF NOT EXISTS optimizations_user_idx ON optimizations(user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS optimizations_created_idx ON optimizations(created_at DESC);
+
+-- entrées analysées (agents, axes, aménagements) : nécessaires pour modifier et ré-optimiser le planning corrigé
+ALTER TABLE optimizations ADD COLUMN IF NOT EXISTS inputs_gz BYTEA;
+
+-- versions du planning corrigé (v0 = optimizations.result_gz, non dupliquée)
+CREATE TABLE IF NOT EXISTS planning_versions (
+  id               SERIAL PRIMARY KEY,
+  optimization_id  INTEGER NOT NULL REFERENCES optimizations(id) ON DELETE CASCADE,
+  version          INTEGER NOT NULL CHECK (version >= 1),
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  user_id          INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  motif            TEXT NOT NULL,
+  comment          TEXT NOT NULL DEFAULT '',
+  edits            JSONB NOT NULL,              -- modifications de cette version
+  reoptimized      BOOLEAN NOT NULL,
+  vehicles         INTEGER NOT NULL,
+  swaps_new        INTEGER NOT NULL,
+  result_gz        BYTEA NOT NULL,              -- résultat complet de la version (JSON compressé)
+  UNIQUE (optimization_id, version)
+);
 `;
 
 /** Crée les tables (si besoin), les réglages par défaut et l'admin initial (si aucun admin n'existe). */

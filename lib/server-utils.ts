@@ -1,9 +1,11 @@
 import { buildDemoFiles } from "./templates";
 import type { UploadedFile } from "./parse";
 import { DEFAULT_SETTINGS, type Settings } from "./types";
+import { nextMonday, todayIso } from "./util";
 
 export async function readFilesFromForm(form: FormData): Promise<UploadedFile[]> {
-  if (form.get("demo") === "1") return buildDemoFiles();
+  // démo : semaine qui commence au prochain lundi, pour pouvoir essayer les modifications (les jours passés sont figés)
+  if (form.get("demo") === "1") return buildDemoFiles(nextMonday(todayIso()));
   const out: UploadedFile[] = [];
   for (const v of form.getAll("files")) {
     if (typeof v === "string") continue;

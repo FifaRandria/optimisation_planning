@@ -94,12 +94,25 @@ Première connexion : identifiant `admin`, mot de passe `ADMIN_PASSWORD` de `.en
 3. Cliquer « Optimiser ». On obtient la synthèse avant/après, les échanges proposés, le planning corrigé (cases modifiées en jaune), les listes de transport par axe et par chauffeur, et les alertes.
 4. Télécharger le planning corrigé, les échanges ou le classeur complet.
 
+### Modifier le planning corrigé (renforts, absences, changements d'horaire)
+Après l'optimisation, la fiche de l'historique (onglet **Planning corrigé** › **Modifier le planning**) permet d'ajuster le planning sans repartir de zéro.
+- **Cliquer sur une case** : horaire, OFF, absent (code libre) ou congé. Les **jours passés** (fuseau Indian/Antananarivo) sont figés.
+- **Ajouter un renfort** : une personne de la liste des agents, ou saisie à la main (matricule, fonction, axes).
+- **Coût visible avant de valider** : véhicules par jour avant → après, et pour la case choisie les vagues de son axe qui ont encore des **places libres** (y placer la personne ne coûte aucun véhicule). La liste des **petits véhicules** (4 personnes ou moins) à venir est affichée.
+- **Ré-optimiser autour des modifications** (coché par défaut) : l'algorithme est relancé, mais ne touche ni aux jours passés, ni aux cases modifiées à la main, ni aux échanges déjà annoncés (cases déjà différentes du planning publié). Décoché : recalcul du transport seulement.
+- **Aperçu** avant d'enregistrer, puis **Enregistrer** : chaque enregistrement crée une **version** (v1, v2…), avec motif, commentaire, auteur et date. Les versions précédentes restent consultables (barre « Versions du planning »). Si quelqu'un a enregistré entre-temps, l'enregistrement est refusé : il faut recharger la page.
+- Exports : feuille **« Modifications »** (planning, tout en un) et **« Changements transport »** par rapport à la version précédente (listes de transport, tout en un), à transmettre aux chauffeurs.
+- Le tableau de bord et l'historique comptent les véhicules de la **dernière version**.
+- Les entrées analysées (agents, axes, aménagements) sont conservées avec chaque optimisation (`inputs_gz`) : les optimisations faites avant cette évolution restent consultables mais ne sont pas modifiables (relancez-les).
+- La démo du site commence au prochain lundi, pour pouvoir essayer les modifications.
+
 En ligne de commande :
 
 ```bash
 npm run test:real -- planning.xlsx personnes-par-fonction.xlsx axes.xlsx            # réglages par défaut
 npm run test:real -- planning.xlsx personnes-par-fonction.xlsx axes.xlsx --compare  # compare 3 variantes
 npx tsx scripts/exemple-fictif.ts                                                     # exemple fictif détaillé
+npx tsx scripts/test-versions.ts                                                      # versions : renfort, absence, verrous (contrôles à 0)
 ```
 
 `run-real.ts` affiche les véhicules avant et après, puis des **contrôles d'invariants qui doivent tous valoir 0** (voir « Garanties »).
@@ -117,7 +130,7 @@ Les feuilles sont **reconnues automatiquement par leurs en-têtes** : leur nom e
 | **Planning** (obligatoire) | `Matricule`, puis pour chaque jour « heure d'arrivée » et « heure de départ ». Les dates sont soit en en-tête (planning hebdo S+1), soit données par une ligne de numéros de jour avec une colonne `Mois` (planning mensuel). Une case contient une heure, `OFF`, ou un code (C, CM, RC, CP, Récup, CONGE…). | « Planning Agents S+1 », planning mensuel |
 | **Agents** (obligatoire) | `Matricule`, **`Fonction`**, et soit `Axe 21h` / `Axe 23h`, soit une commune (`Commune / Fokotany`, `Repère`, `Quartier`). En option : `Niveau`, `Tardifs historique`. Plusieurs feuilles sont fusionnées ; la feuille qui contient la fonction et les axes passe en priorité. | Personnes-par-fonction |
 | **Axes** (facultatif si les agents ont leurs axes) | Commune → `Axe 23h`, `Axe 21h`, chauffeurs, `Durée en minutes`. | Feuille « Axes » du fichier WFM transport |
-| **Aménagements** (facultatif) | `Matricule`, `Aménagement` (texte libre), dates de congé. | Amenagement_S41 |
+| **Aménagements** (facultatif) | `Matricule`, `Aménagement` (texte libre), `Début aménagement` / `Fin aménagement` (facultatif), dates de congé. | Amenagement_S41 |
 
 Des modèles Excel vides sont téléchargeables depuis l'écran.
 
@@ -179,6 +192,8 @@ L'échange de jour OFF récupère environ 15 % de gain en plus, sans changer la 
 - **Axes** : `Axe 21h` et `Axe 23h` lus directement, sinon déduits de la commune avec la table des axes. On cherche d'abord une correspondance exacte, puis par début de mot (au moins 5 lettres) si elle ne mène qu'à un seul axe. La durée du trajet sert à départager deux candidats égaux.
 - **Agent figé** (jamais échangé) s'il a un aménagement, s'il est absent de la liste, s'il n'a ni axe ni fonction, ou s'il n'a pas de niveau quand le réglage l'interdit. Les dates de congé des aménagements bloquent ses jours.
 - **Aménagements des deux personnes :** un échange exige que les deux personnes soient libres. Si l'une des deux a un aménagement, quel qu'en soit le texte (santé, horaire imposé, OFF imposé…), l'échange est refusé ; la règle vaut aussi pour la réserve hors planning. Exception **optionnelle** (réglage « Échanger les agents avec un rôle seul », `swapRoles`, désactivé par défaut) : un aménagement qui n'est qu'un rôle (« RENFORT DIGITAL », « TEAM LEAD », sans autre mention) ne fige pas la personne. Contrôlé par `amenTouched` dans `scripts/run-real.ts`.
+- **Période d'un aménagement :** avec les colonnes facultatives `Début aménagement` / `Fin aménagement` (ou `Date début` / `Date fin`), l'aménagement ne bloque que les jours de sa période : l'agent reste échangeable les autres jours de la semaine. Une période hors de la semaine est sans effet (alerte d'info). **Sans date, l'aménagement fige l'agent toute la semaine.** Les colonnes `Congé` restent des dates de congé : elles ne sont jamais lues comme la période de l'aménagement. Une personne dont l'aménagement touche la semaine ne sert pas de réserve.
+- **Employés TERSEA :** ils sont traités comme des aménagements, donc jamais échangés, jamais remplacés par la réserve et jamais utilisés comme réserve. Un agent est reconnu comme TERSEA quand « TERSEA » figure dans sa fonction (liste des agents ou planning) ou dans une colonne Rattachement, CDO, Recap, Société, Entreprise, Employeur, Prestataire ou Client (IT.xlsx). Une alerte donne leur nombre. Le planificateur peut toujours modifier leur planning à la main depuis la fiche (« Modifier le planning »). Contrôlé par `frozenTouched`.
 - **Compteurs d'équité** : `tardifs` = historique + nombre de shifts avec remisage ; `weOff` = nombre de samedis et dimanches OFF.
 
 ### 2. Grouper : une vague + un axe = un véhicule
@@ -286,7 +301,9 @@ lib/settings-meta.ts    groupes de réglages et visibilité par défaut pour les
 scripts/db-init.ts      création de la base, des tables et de l'admin initial (npm run db:init)
 lib/parse.ts            détection automatique des feuilles et lecture des fichiers Excel
 lib/waves.ts            vagues de ramassage / remisage (partagé serveur et écran)
-lib/optimize.ts         algorithme d'optimisation
+lib/optimize.ts         algorithme d'optimisation (option `locked` : cases et jours verrouillés)
+lib/versions.ts         versions du planning corrigé : modifications, verrous, ré-optimisation, différences de transport
+lib/transport-cost.ts   coût transport calculé à l'écran pendant les modifications
 lib/export.ts           classeurs Excel de sortie
 lib/templates.ts        modèles Excel et données de démo
 lib/sample.ts           jeu de données fictif (démo)

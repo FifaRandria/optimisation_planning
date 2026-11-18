@@ -1,6 +1,6 @@
 // Historique des optimisations : chacun voit les siennes, un admin voit tout.
 import { gunzipSync, gzipSync } from "zlib";
-import type { OptimizationResult } from "../types";
+import type { OptimizationResult, ParsedInputs } from "../types";
 import type { PublicUser } from "../settings-meta";
 import { dayLabel } from "../util";
 import { HttpError } from "./auth";
@@ -22,10 +22,16 @@ export interface HistoryItem {
   swapsOff: number;
   swapsReserve: number;
   durationMs: number;
+  version: number; // dernière version du planning (0 = pas de modification manuelle)
+  editable: boolean; // entrées d'origine conservées : le planning corrigé peut être modifié
 }
 
+// vehicles_after = véhicules de la DERNIÈRE version (modifications manuelles comprises)
 const COLS = `o.id, o.created_at, o.label, o.user_id, u.display_name AS user_name, o.files, o.period_start, o.period_end, o.agents,
-  o.vehicles_before, o.vehicles_after, o.swaps, o.swaps_off, o.swaps_reserve, o.duration_ms`;
+  o.vehicles_before, COALESCE(lv.vehicles, o.vehicles_after) AS vehicles_after, o.swaps, o.swaps_off, o.swaps_reserve, o.duration_ms,
+  COALESCE(lv.version, 0) AS version, (o.inputs_gz IS NOT NULL) AS editable`;
+const FROM = `optimizations o LEFT JOIN users u ON u.id = o.user_id
+  LEFT JOIN LATERAL (SELECT v.version, v.vehicles FROM planning_versions v WHERE v.optimization_id = o.id ORDER BY v.version DESC LIMIT 1) lv ON TRUE`;
 
 interface Row {
   id: number;
@@ -43,6 +49,8 @@ interface Row {
   swaps_off: number;
   swaps_reserve: number;
   duration_ms: number;
+  version: number;
+  editable: boolean;
 }
 
 const iso = (d: Date | string | null) => (d == null ? null : typeof d === "string" ? d.slice(0, 10) : new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10));
@@ -63,18 +71,20 @@ const toItem = (r: Row): HistoryItem => ({
   swapsOff: r.swaps_off,
   swapsReserve: r.swaps_reserve,
   durationMs: r.duration_ms,
+  version: r.version,
+  editable: r.editable,
 });
 
 /** Filtre de visibilité : un utilisateur ne voit que ses optimisations. */
 const scope = (user: PublicUser, alias = "o") => (user.role === "admin" ? { sql: "TRUE", params: [] as unknown[] } : { sql: `${alias}.user_id = $1`, params: [user.id] as unknown[] });
 
-export async function saveOptimization(user: PublicUser, files: string[], result: OptimizationResult, durationMs: number): Promise<number> {
+export async function saveOptimization(user: PublicUser, files: string[], result: OptimizationResult, durationMs: number, inputs: ParsedInputs): Promise<number> {
   const d = result.dates;
   const label = d.length ? `Planning du ${dayLabel(d[0])} au ${dayLabel(d[d.length - 1])}` : "Planning";
   const row = await q1<{ id: number }>(
     `INSERT INTO optimizations (user_id, label, files, period_start, period_end, agents, vehicles_before, vehicles_after,
-       swaps, swaps_off, swaps_reserve, duration_ms, settings, result_gz)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING id`,
+       swaps, swaps_off, swaps_reserve, duration_ms, settings, result_gz, inputs_gz)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING id`,
     [
       user.id,
       label,
@@ -90,6 +100,7 @@ export async function saveOptimization(user: PublicUser, files: string[], result
       Math.round(durationMs),
       JSON.stringify(result.settings),
       gzipSync(Buffer.from(JSON.stringify(result))),
+      gzipSync(Buffer.from(JSON.stringify(inputs))),
     ]
   );
   return row!.id;
@@ -98,18 +109,18 @@ export async function saveOptimization(user: PublicUser, files: string[], result
 export async function listOptimizations(user: PublicUser, limit = 500): Promise<HistoryItem[]> {
   const s = scope(user);
   const rows = await q<Row>(
-    `SELECT ${COLS} FROM optimizations o LEFT JOIN users u ON u.id = o.user_id WHERE ${s.sql} ORDER BY o.created_at DESC LIMIT ${Number(limit)}`,
+    `SELECT ${COLS} FROM ${FROM} WHERE ${s.sql} ORDER BY o.created_at DESC LIMIT ${Number(limit)}`,
     s.params
   );
   return rows.map(toItem);
 }
 
 export async function getOptimization(user: PublicUser, id: number): Promise<{ item: HistoryItem; result: OptimizationResult }> {
-  const r = await q1<Row & { result_gz: Buffer }>(`SELECT ${COLS}, o.result_gz FROM optimizations o LEFT JOIN users u ON u.id = o.user_id WHERE o.id = $1`, [id]);
+  const r = await q1<Row & { result_gz: Buffer }>(`SELECT ${COLS}, o.result_gz FROM ${FROM} WHERE o.id = $1`, [id]);
   if (!r) throw new HttpError(404, "Optimisation introuvable.");
   if (user.role !== "admin" && r.user_id !== user.id) throw new HttpError(403, "Cette optimisation ne vous appartient pas.");
   const result = JSON.parse(gunzipSync(r.result_gz).toString("utf8")) as OptimizationResult;
-  return { item: toItem(r), result: { ...result, historyId: r.id } };
+  return { item: toItem(r), result: { ...result, historyId: r.id, version: 0 } };
 }
 
 export async function deleteOptimization(user: PublicUser, id: number): Promise<void> {

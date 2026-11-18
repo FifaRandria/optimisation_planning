@@ -37,6 +37,7 @@ export interface AgentInfo {
   actif?: boolean; // false si « Etat du collaborateur » = INACTIF
   dateDepart?: string; // ISO
   mainList?: boolean; // présent dans la liste principale des agents (source de la réserve hors planning)
+  tersea?: boolean; // employé TERSEA (fonction ou rattachement) : traité comme un aménagement, jamais échangé
 }
 
 export interface AxeRow {
@@ -60,6 +61,9 @@ export interface Amenagement {
   texte: string;
   congeDebut?: string;
   congeFin?: string;
+  // période de l'aménagement (colonnes « Début aménagement » / « Fin aménagement ») : sans date, il vaut toute la semaine
+  debut?: string;
+  fin?: string;
 }
 
 export interface DetectedSource {
@@ -188,13 +192,26 @@ export interface Swap {
   reason: string;
   planSummary: string; // ex: "Fermeture Axe 1 à 21h"
   vehiclesSaved: number; // gain du plan (répété sur chaque échange du plan)
+  version?: number; // version du planning qui a proposé cet échange (absent = optimisation d'origine)
 }
 
 export interface OptimizationResult {
   settings: Settings;
   axeColumns: string[];
   dates: string[];
-  agents: { matricule: string; nom: string; niveau: Level; fonction: string; pole: string; commune: string; axe: string; frozen: string | null; reserve?: boolean }[];
+  agents: {
+    matricule: string;
+    nom: string;
+    niveau: Level;
+    fonction: string;
+    pole: string;
+    commune: string;
+    axe: string;
+    frozen: string | null;
+    reserve?: boolean;
+    added?: boolean; // ajouté à la main (renfort hors planning) dans une version
+    axes?: Partial<Record<"21h" | "23h", string>>; // axe par colonne (calcul du coût d'une modification à l'écran)
+  }[];
   before: Cell[][]; // [agentIndex][day]
   after: Cell[][];
   changed: boolean[][];
@@ -207,4 +224,91 @@ export interface OptimizationResult {
   detection: DetectedSource[];
   generatedAt: string;
   historyId?: number; // id dans l'historique (base de données)
+  version?: number; // 0 = optimisation d'origine, 1, 2… = versions modifiées à la main
+  edits?: PlanningEdit[]; // modifications manuelles cumulées (toutes versions)
+  transportChanges?: TransportChange[]; // différences de transport avec la version précédente
+}
+
+// ---------------------------------------------------------------------------
+// Versions du planning corrigé (modifications manuelles après l'optimisation)
+// ---------------------------------------------------------------------------
+
+export type EditMotif = "renfort" | "absence" | "horaire" | "transport" | "autre";
+
+export const EDIT_MOTIFS: Record<EditMotif, string> = {
+  renfort: "Renfort",
+  absence: "Absence / désistement",
+  horaire: "Changement d'horaire",
+  transport: "Ajustement transport",
+  autre: "Autre",
+};
+
+/** Une case modifiée à la main, telle qu'elle est conservée dans la version. */
+export interface PlanningEdit {
+  version: number;
+  matricule: string;
+  nom: string;
+  dayIndex: number;
+  date: string;
+  before: string; // "12:00-21:00", "OFF", "Hors planning"…
+  after: string;
+  motif: EditMotif;
+  comment?: string;
+  by?: string;
+  at: string; // ISO
+}
+
+/** Une case à modifier (requête). */
+export interface EditInput {
+  matricule: string;
+  dayIndex: number;
+  cell: Cell;
+}
+
+/** Renfort absent du planning : ajouté comme nouvelle ligne. */
+export interface NewAgentInput {
+  matricule: string;
+  nom: string;
+  fonction: string;
+  pole?: string;
+  niveau?: Level;
+  commune?: string;
+  axe21?: string;
+  axe23?: string;
+}
+
+export interface VersionRequest {
+  baseVersion: number;
+  motif: EditMotif;
+  comment?: string;
+  edits: EditInput[];
+  newAgents?: NewAgentInput[];
+  reoptimize: boolean; // proposer de nouveaux échanges autour des modifications
+  save: boolean; // false = aperçu sans enregistrer
+}
+
+export interface VersionInfo {
+  version: number;
+  createdAt: string;
+  userName: string | null;
+  motif: EditMotif | null;
+  comment: string;
+  edits: number;
+  reoptimized: boolean;
+  vehicles: number;
+  swapsNew: number;
+}
+
+/** Transport d'un groupe (jour × vague × axe) qui change entre deux versions. */
+export interface TransportChange {
+  dayIndex: number;
+  date: string;
+  kind: "ramassage" | "remisage";
+  wave: string;
+  axe: string;
+  chauffeur?: string;
+  vehiclesBefore: number;
+  vehiclesAfter: number;
+  added: string[]; // "Nom (matricule)"
+  removed: string[];
 }

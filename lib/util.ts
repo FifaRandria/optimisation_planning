@@ -138,6 +138,26 @@ export function weekKey(iso: string): string {
   return isoDate(new Date(d.getTime() - dow * 86400000));
 }
 
+/** Employé TERSEA : « TERSEA » dans la fonction, le rattachement, la société… (traité comme un aménagement). */
+export function isTersea(...texts: unknown[]): boolean {
+  return texts.some((t) => /(^| )tersea( |$)/.test(norm(t)));
+}
+
+/** Fuseau de l'organisation : « aujourd'hui » décide quels jours du planning sont passés (donc figés). */
+export const ORG_TIME_ZONE = "Indian/Antananarivo";
+
+/** Date du jour (ISO) dans le fuseau de l'organisation. */
+export function todayIso(now = new Date()): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: ORG_TIME_ZONE, year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
+}
+
+/** Lundi qui suit une date ISO (la date elle-même si c'est un lundi). */
+export function nextMonday(iso: string): string {
+  const d = new Date(iso + "T00:00:00Z");
+  const add = (8 - d.getUTCDay()) % 7;
+  return isoDate(new Date(d.getTime() + add * 86400000));
+}
+
 export function isWeekend(iso: string): boolean {
   const g = new Date(iso + "T00:00:00Z").getUTCDay();
   return g === 0 || g === 6;

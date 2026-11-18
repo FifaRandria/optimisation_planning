@@ -1,5 +1,5 @@
 import ExcelJS from "exceljs";
-import type { Cell, Group, OptimizationResult } from "./types";
+import { EDIT_MOTIFS, type Cell, type Group, type OptimizationResult } from "./types";
 import { dayLabel, fmtTime } from "./util";
 import { waveLabel } from "./waves";
 import { addPlanningSheet } from "./templates";
@@ -39,7 +39,9 @@ function sheetPlanning(wb: ExcelJS.Workbook, r: OptimizationResult) {
   const rows = r.agents.map((a, i) => ({ matricule: a.matricule, nom: a.nom, cells: r.after[i].map(cellValue) }));
   const ws = addPlanningSheet(wb, "Planning Agents S+1", r.dates, rows, r.changed);
   const n = ws.rowCount + 2;
-  ws.getCell(n, 2).value = "Cases en jaune = case modifiée par l'optimisation (voir la feuille « Échanges »). « REMPLACÉ » = agent remplacé toute la semaine par une personne hors planning, ajoutée en bas du planning (disponibilité à confirmer).";
+  ws.getCell(n, 2).value =
+    "Cases en jaune = case différente du planning publié : échange de l'optimisation (feuille « Échanges ») ou modification manuelle (feuille « Modifications »). « REMPLACÉ » = agent remplacé toute la semaine par une personne hors planning, ajoutée en bas du planning (disponibilité à confirmer)." +
+    (r.version ? ` Version ${r.version} du planning corrigé.` : "");
   ws.getCell(n, 2).font = { italic: true };
 }
 
@@ -175,15 +177,58 @@ function sheetAlertes(wb: ExcelJS.Workbook, r: OptimizationResult) {
   for (const a of r.alerts.slice().sort((x, y) => order[x.level] - order[y.level])) ws.addRow([a.level === "error" ? "Erreur" : a.level === "warn" ? "Attention" : "Info", a.code, a.matricule ?? "", a.nom ?? "", a.message]);
 }
 
+/** Modifications manuelles (toutes versions). */
+function sheetModifications(wb: ExcelJS.Workbook, r: OptimizationResult) {
+  if (!r.edits?.length) return;
+  const ws = wb.addWorksheet("Modifications");
+  header(ws, [
+    { h: "Version", w: 9 },
+    { h: "Jour", w: 12 },
+    { h: "Matricule", w: 14 },
+    { h: "Nom", w: 30 },
+    { h: "Avant", w: 16 },
+    { h: "Après", w: 16 },
+    { h: "Motif", w: 22 },
+    { h: "Commentaire", w: 40 },
+    { h: "Par", w: 22 },
+    { h: "Le", w: 18 },
+  ]);
+  for (const e of r.edits)
+    ws.addRow([`v${e.version}`, dayLabel(e.date), e.matricule, e.nom, e.before, e.after, EDIT_MOTIFS[e.motif], e.comment ?? "", e.by ?? "", new Date(e.at).toLocaleString("fr-FR")]);
+}
+
+/** Transport : ce qui change par rapport à la version précédente (à transmettre aux chauffeurs). */
+function sheetTransportChanges(wb: ExcelJS.Workbook, r: OptimizationResult) {
+  if (r.version === undefined || r.version === 0 || !r.transportChanges) return;
+  const ws = wb.addWorksheet("Changements transport");
+  header(ws, [
+    { h: "Jour", w: 12 },
+    { h: "Vague", w: 16 },
+    { h: "Axe", w: 12 },
+    { h: "Chauffeur", w: 20 },
+    { h: "Véhicules avant", w: 10 },
+    { h: "Véhicules après", w: 10 },
+    { h: "Ajoutés", w: 50 },
+    { h: "Retirés", w: 50 },
+  ]);
+  for (const c of r.transportChanges)
+    ws.addRow([dayLabel(c.date), waveLabel(c.kind, c.wave), c.axe, c.chauffeur ?? "", c.vehiclesBefore, c.vehiclesAfter, c.added.join(", "), c.removed.join(", ")]);
+  if (!r.transportChanges.length) ws.addRow(["Aucun changement de transport par rapport à la version précédente."]);
+}
+
 export async function buildExport(r: OptimizationResult, kind: ExportKind): Promise<Buffer> {
   const wb = new ExcelJS.Workbook();
   wb.creator = "Optimiseur transport";
-  if (kind === "planning") sheetPlanning(wb, r);
+  if (kind === "planning") {
+    sheetPlanning(wb, r);
+    sheetModifications(wb, r);
+  }
   if (kind === "echanges") {
     sheetEchanges(wb, r);
     sheetSynthese(wb, r);
   }
   if (kind === "transport") {
+    sheetTransportChanges(wb, r);
     sheetGroups(wb, "Transport après (par axe)", r.groupsAfter);
     sheetChauffeurs(wb, "Par chauffeur après", r.groupsAfter);
     sheetGroups(wb, "Transport avant (par axe)", r.groupsBefore);
@@ -192,7 +237,9 @@ export async function buildExport(r: OptimizationResult, kind: ExportKind): Prom
   if (kind === "complet") {
     sheetSynthese(wb, r);
     sheetPlanning(wb, r);
+    sheetModifications(wb, r);
     sheetEchanges(wb, r);
+    sheetTransportChanges(wb, r);
     sheetGroups(wb, "Transport après (par axe)", r.groupsAfter);
     sheetChauffeurs(wb, "Par chauffeur après", r.groupsAfter);
     sheetGroups(wb, "Transport avant (par axe)", r.groupsBefore);

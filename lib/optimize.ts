@@ -12,7 +12,7 @@ import type {
   Swap,
   SwapSide,
 } from "./types";
-import { axeKey, dayLabel, fmtShift, isWeekend, norm, weekKey } from "./util";
+import { axeKey, dayLabel, fmtShift, isTersea, isWeekend, norm, weekKey } from "./util";
 import { axeKeyForWave, transportEvents, waveLabel } from "./waves";
 
 // ---------------------------------------------------------------------------
@@ -98,7 +98,7 @@ export function previewStats(inputs: ParsedInputs, settings: Settings) {
   const fns = new Set<string>();
   // aménagements des agents du planning : figés, et parmi eux les « rôles seuls »
   const amenTexts = new Map<string, string[]>();
-  for (const a of inputs.amenagements) if (a.texte) amenTexts.set(a.matricule, [...(amenTexts.get(a.matricule) ?? []), a.texte]);
+  for (const a of inputs.amenagements) if (a.texte && amenDays(a, inputs.planning.dates).length) amenTexts.set(a.matricule, [...(amenTexts.get(a.matricule) ?? []), a.texte]);
   let amenFrozen = 0;
   let amenRoleOnly = 0;
   for (const pa of inputs.planning.agents) {
@@ -158,15 +158,18 @@ export function previewStats(inputs: ParsedInputs, settings: Settings) {
 function reserveCandidates(inputs: ParsedInputs, resolve: (info: AgentInfo | undefined) => ResolvedAgent, settings: Pick<Settings, "swapRoles">) {
   const planned = new Set(inputs.planning?.agents.map((a) => a.matricule) ?? []);
   const first = inputs.planning?.dates[0] ?? "";
-  const amen = new Set(inputs.amenagements.filter((a) => amenFreezes(a.texte, settings)).map((a) => a.matricule));
+  const dates = inputs.planning?.dates ?? [];
+  // une réserve reprend toute la semaine : exclue dès que son aménagement touche un jour de la semaine
+  const amen = new Set(inputs.amenagements.filter((a) => amenFreezes(a.texte, settings) && amenDays(a, dates).length > 0).map((a) => a.matricule));
   const list: { info: AgentInfo; res: ResolvedAgent }[] = [];
-  const excluded = { amenagement: 0, inactif: 0, depart: 0, sansFonction: 0, sansAxe: 0 };
+  const excluded = { amenagement: 0, tersea: 0, inactif: 0, depart: 0, sansFonction: 0, sansAxe: 0 };
   for (const info of inputs.agents) {
     if (!info.mainList || planned.has(info.matricule)) continue;
     if (info.actif === false) { excluded.inactif++; continue; }
     if (info.dateDepart && info.dateDepart <= first) { excluded.depart++; continue; }
     if (!info.fonction) { excluded.sansFonction++; continue; }
     if (amen.has(info.matricule)) { excluded.amenagement++; continue; }
+    if (info.tersea || isTersea(info.fonction)) { excluded.tersea++; continue; }
     const res = resolve(info);
     if (!Object.keys(res.axes).length) { excluded.sansAxe++; continue; }
     list.push({ info, res });
@@ -195,6 +198,14 @@ export function isRoleOnly(texte: string): boolean {
   const n = norm(texte);
   if (!n) return false;
   return n.replace(/\brenfort digital\b|\bteam lead\b/g, " ").trim() === "";
+}
+
+/** Jours (index) du planning couverts par un aménagement : tous s'il n'a pas de période. */
+export function amenDays(a: { debut?: string; fin?: string }, dates: string[]): number[] {
+  if (!a.debut && !a.fin) return dates.map((_, i) => i);
+  const from = a.debut ?? "0000-01-01";
+  const to = a.fin ?? "9999-12-31";
+  return dates.flatMap((d, i) => (d >= from && d <= to ? [i] : []));
 }
 
 /** Un aménagement fige-t-il la personne ? Oui pour tout texte, sauf rôle seul quand le réglage le permet. */
@@ -248,7 +259,21 @@ interface Move {
   assigns: Assign[];
 }
 
-export function optimize(inputs: ParsedInputs, settings: Settings): OptimizationResult {
+export interface OptimizeOptions {
+  /** cases verrouillées, par agent du planning (même ordre que inputs.planning.agents) et par jour */
+  locked?: boolean[][];
+  /** jours entièrement verrouillés pour tout le monde, réserve comprise (ex. jours passés) */
+  lockedDays?: boolean[];
+  /** nom du planning de départ dans les alertes de repos (« planning d'origine » par défaut) */
+  baseLabel?: string;
+}
+
+/** Axes d'une personne de la liste (pour un renfort ajouté à la main). */
+export function resolveAgentAxes(inputs: ParsedInputs, info: AgentInfo): Partial<Record<AxeKey, string>> {
+  return buildResolver(inputs).resolve(info).axes;
+}
+
+export function optimize(inputs: ParsedInputs, settings: Settings, opts: OptimizeOptions = {}): OptimizationResult {
   if (!inputs.planning) throw new Error("Planning manquant");
 
   const planning = inputs.planning;
@@ -272,6 +297,7 @@ export function optimize(inputs: ParsedInputs, settings: Settings): Optimization
   // -- métadonnées par agent ---------------------------------------------------
   const unknownLevel: string[] = [];
   let fnFromPlanning = 0;
+  let nTersea = 0;
   const metas: AgentMeta[] = planning.agents.map((pa) => {
     const info = agentInfo.get(pa.matricule);
     const res = resolve(info);
@@ -287,6 +313,20 @@ export function optimize(inputs: ParsedInputs, settings: Settings): Optimization
           matricule: pa.matricule,
           nom: pa.nom,
           message: `Aménagement « ${a.texte} » = rôle seul : agent échangeable (réglage « rôles échangeables » activé). Ses congés restent bloqués.`,
+        });
+      } else if (a.texte && (a.debut || a.fin)) {
+        // aménagement daté : seuls les jours de sa période sont bloqués, l'agent reste échangeable les autres jours
+        const days = amenDays(a, dates);
+        const period = `${a.debut && a.debut > "0001" ? `du ${dayLabel(a.debut)} ` : ""}${a.fin && a.fin < "9999" ? `au ${dayLabel(a.fin)}` : "sans date de fin"}`.trim();
+        days.forEach((d) => blocked.add(d));
+        alerts.push({
+          level: "info",
+          code: days.length ? "amenagement-date" : "amenagement-hors-semaine",
+          matricule: pa.matricule,
+          nom: pa.nom,
+          message: days.length
+            ? `Aménagement « ${a.texte} » (${period}) → bloqué ${days.length === dates.length ? "toute la semaine" : `le ${days.map((d) => dayLabel(dates[d])).join(", ")}`}, échangeable les autres jours.`
+            : `Aménagement « ${a.texte} » (${period}) hors de la semaine → sans effet, agent échangeable.`,
         });
       } else if (a.texte) {
         const cat = classifyAmenagement(a.texte);
@@ -308,6 +348,11 @@ export function optimize(inputs: ParsedInputs, settings: Settings): Optimization
           if (d >= start && d <= end) blocked.add(i);
         });
       }
+    }
+    // Employés TERSEA : traités comme un aménagement (jamais échangés, jamais remplacés)
+    if (info?.tersea || isTersea(info?.fonction, pa.fonction)) {
+      frozenReasons.unshift("Employé TERSEA (traité comme un aménagement)");
+      nTersea++;
     }
     const hasAxe = Object.keys(res.axes).length > 0;
     if (!info) {
@@ -349,6 +394,8 @@ export function optimize(inputs: ParsedInputs, settings: Settings): Optimization
       reserve: false,
     };
   });
+  if (nTersea)
+    alerts.push({ level: "info", code: "tersea", message: `${nTersea} employé(s) TERSEA dans le planning : traités comme un aménagement, ils ne sont jamais échangés ni remplacés.` });
   if (fnFromPlanning)
     alerts.push({ level: "info", code: "fonction-planning", message: `${fnFromPlanning} agent(s) sans fonction dans la liste : la fonction du planning (souvent plus générique) est utilisée.` });
   if (unknownLevel.length && unknownLevel.length < nPlan)
@@ -419,6 +466,7 @@ export function optimize(inputs: ParsedInputs, settings: Settings): Optimization
       excluded.inactif && `${excluded.inactif} inactif(s)`,
       excluded.depart && `${excluded.depart} parti(s)`,
       excluded.amenagement && `${excluded.amenagement} avec aménagement`,
+      excluded.tersea && `${excluded.tersea} TERSEA`,
       excluded.sansAxe && `${excluded.sansAxe} sans axe`,
       excluded.sansFonction && `${excluded.sansFonction} sans fonction`,
     ].filter(Boolean);
@@ -439,7 +487,7 @@ export function optimize(inputs: ParsedInputs, settings: Settings): Optimization
   const rowsOf = () => metas.map((m, i) => (i < nPlan ? planning.agents[i].cells.map((c) => ({ ...c }) as Cell) : dates.map(() => HORS)));
   const before: Cell[][] = rowsOf();
   const cells: Cell[][] = rowsOf();
-  const locked: boolean[][] = metas.map(() => dates.map(() => false));
+  const locked: boolean[][] = metas.map((_, i) => dates.map((_, d) => !!opts.lockedDays?.[d] || (i < nPlan && !!opts.locked?.[i]?.[d])));
 
   const keysOf = (i: number, c: Cell): string[] =>
     transportEvents(c, settings).map((e) => {
@@ -882,7 +930,7 @@ export function optimize(inputs: ParsedInputs, settings: Settings): Optimization
           code: "repos",
           matricule: pa.matricule,
           nom: pa.nom,
-          message: `Repos de ${((c.arr + 1440 - p.dep) / 60).toFixed(1)} h entre ${dayLabel(dates[d - 1])} et ${dayLabel(dates[d])} dans le planning d'origine (< ${settings.minRestHours} h).`,
+          message: `Repos de ${((c.arr + 1440 - p.dep) / 60).toFixed(1)} h entre ${dayLabel(dates[d - 1])} et ${dayLabel(dates[d])} dans le ${opts.baseLabel ?? "planning d'origine"} (< ${settings.minRestHours} h).`,
         });
     }
   });
@@ -919,7 +967,7 @@ export function optimize(inputs: ParsedInputs, settings: Settings): Optimization
     dates,
     agents: metas
       .filter((_, i) => keep[i])
-      .map((m) => ({ matricule: m.matricule, nom: m.nom, niveau: m.niveau, fonction: m.fonction, pole: m.pole, commune: m.commune, axe: axeText(m), frozen: m.frozen, reserve: m.reserve || undefined })),
+      .map((m) => ({ matricule: m.matricule, nom: m.nom, niveau: m.niveau, fonction: m.fonction, pole: m.pole, commune: m.commune, axe: axeText(m), frozen: m.frozen, reserve: m.reserve || undefined, axes: m.axes })),
     before: before.filter((_, i) => keep[i]),
     after: cells.filter((_, i) => keep[i]),
     changed: changedAll.filter((_, i) => keep[i]),

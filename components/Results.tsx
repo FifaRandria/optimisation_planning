@@ -2,11 +2,21 @@
 
 import { useMemo, useState } from "react";
 import type { Alert, Cell, Group, OptimizationResult, Settings, Swap, SwapSide } from "@/lib/types";
+import { EDIT_MOTIFS } from "@/lib/types";
+import PlanningEditor, { TransportChangesTable } from "./PlanningEditor";
 import { dayLabel, fmtShift, fmtTime, norm } from "@/lib/util";
 import { transportEvents, waveLabel } from "@/lib/waves";
-import { IconAlert, IconBus, IconCalendar, IconCheck, IconChevron, IconDownload, IconInfo, IconSearch, IconShield, IconSwap, IconUsers } from "./Icons";
+import { IconAlert, IconBus, IconCalendar, IconCheck, IconChevron, IconDownload, IconHistory, IconInfo, IconLock, IconSearch, IconShield, IconSwap, IconUsers } from "./Icons";
 
-type TabId = "synthese" | "echanges" | "planning" | "transport" | "alertes";
+type TabId = "synthese" | "echanges" | "planning" | "transport" | "modifs" | "alertes";
+
+/** Fiche historique : le planning corrigé peut être modifié (nouvelle version). */
+export interface EditorProps {
+  optId: number;
+  today: string;
+  editable: boolean;
+  reason?: string; // pourquoi la modification est impossible
+}
 const fmtNum = (n: number) => n.toLocaleString("fr-FR");
 
 // ---------------------------------------------------------------------------
@@ -126,7 +136,7 @@ function Synthese({ r }: { r: OptimizationResult }) {
         <div className="guarantee"><IconCheck size={16} /><span>Chacun garde son nombre de jours OFF dans la semaine.</span></div>
         <div className="guarantee"><IconCheck size={16} /><span>Aucun repos de moins de {s.minRestHours} h n'est créé.</span></div>
         <div className="guarantee"><IconCheck size={16} /><span>Congés, codes et agents figés ne bougent pas.</span></div>
-        <div className="guarantee"><IconCheck size={16} /><span>Aménagements vérifiés pour les 2 personnes de chaque échange : aucune personne avec un aménagement n'est échangée{s.swapRoles ? " (sauf rôle seul : RENFORT DIGITAL, TEAM LEAD)" : ""}.</span></div>
+        <div className="guarantee"><IconCheck size={16} /><span>Aménagements vérifiés pour les 2 personnes de chaque échange : aucune personne avec un aménagement n'est échangée{s.swapRoles ? " (sauf rôle seul : RENFORT DIGITAL, TEAM LEAD)" : ""}. Un aménagement daté (Début / Fin aménagement) ne bloque que les jours de sa période ; sans date, il vaut toute la semaine. Les employés TERSEA sont traités comme des aménagements : jamais échangés ni remplacés.</span></div>
         <div className="guarantee"><IconCheck size={16} /><span>« Axe 21h » pour {s.axe21Waves.map((h) => h + "h").join(", ") || "aucune vague"} ; « Axe 23h » pour les autres vagues.</span></div>
       </div>
     </>
@@ -286,6 +296,7 @@ function Echanges({ r }: { r: OptimizationResult }) {
             <span className="day">{dayLabel(p[0].date)}</span>
             <span className="sum">{p[0].planSummary}</span>
             <span className="right">
+              {p[0].version ? <span className="badge indigo">version {p[0].version}</span> : null}
               {p.some((s) => s.kind === "off") && <span className="badge off"><IconCalendar size={12} />jour OFF</span>}
               {p.some((s) => s.kind === "reserve") && <span className="badge err"><IconAlert size={12} />réserve · à confirmer</span>}
               <span className="badge ok">−{p[0].vehiclesSaved} véhicule{p[0].vehiclesSaved > 1 ? "s" : ""}</span>
@@ -328,7 +339,8 @@ function cellClass(c: Cell, changed: boolean, settings: Settings): string {
   return cls;
 }
 
-function PlanningView({ r }: { r: OptimizationResult }) {
+function PlanningView({ r, editor }: { r: OptimizationResult; editor?: EditorProps }) {
+  const [editing, setEditing] = useState(false);
   const [onlyChanged, setOnlyChanged] = useState(true);
   const [q, setQ] = useState("");
   const nq = norm(q);
@@ -338,8 +350,21 @@ function PlanningView({ r }: { r: OptimizationResult }) {
   const nAgents = r.changed.filter((row) => row.some(Boolean)).length;
   const nCells = r.changed.reduce((s, row) => s + row.filter(Boolean).length, 0);
   const wk = r.dates.map((d) => [0, 6].includes(new Date(d + "T00:00:00Z").getUTCDay()));
+  const manual = new Set((r.edits ?? []).map((e) => `${e.matricule}|${e.dayIndex}`));
+  if (editing && editor) return <PlanningEditor r={r} optId={editor.optId} today={editor.today} onCancel={() => setEditing(false)} />;
   return (
     <>
+      {editor && (
+        <div className="callout info edit-cta" style={{ marginTop: 0, marginBottom: 12 }}>
+          {editor.editable ? <IconCalendar size={16} /> : <IconLock size={16} />}
+          <span>
+            {editor.editable
+              ? "Renfort de dernière minute, absence, changement d'horaire ? Modifiez le planning corrigé : le transport est recalculé et l'optimisation relancée autour des changements."
+              : editor.reason}
+          </span>
+          {editor.editable && <button className="btn primary small" onClick={() => setEditing(true)}>Modifier le planning</button>}
+        </div>
+      )}
       <div className="toolbar">
         <div className="seg-ctl">
           <button className={onlyChanged ? "on" : ""} onClick={() => setOnlyChanged(true)}>Agents modifiés<span className="c">{nAgents}</span></button>
@@ -352,6 +377,7 @@ function PlanningView({ r }: { r: OptimizationResult }) {
       </div>
       <div className="legend" style={{ marginBottom: 10 }}>
         <span><i style={{ background: "var(--changed)" }} />case modifiée ({nCells}), l'ancien horaire est barré</span>
+        {manual.size > 0 && <span><i style={{ background: "var(--changed)", outline: "2px solid var(--primary)" }} />modification manuelle ({manual.size})</span>}
         <span><i style={{ background: "var(--pickup)" }} />ramassage</span>
         <span><i style={{ background: "var(--drop)" }} />remisage</span>
       </div>
@@ -373,10 +399,11 @@ function PlanningView({ r }: { r: OptimizationResult }) {
                     <b>{a.nom}</b> <span className="muted">{a.matricule}</span>
                     {a.frozen && <span className="frozen-tag" title={a.frozen}>figé</span>}
                     {a.reserve && <span className="frozen-tag" style={{ background: "var(--accent-soft)", color: "var(--accent)" }} title="Personne hors planning ajoutée comme remplaçant : disponibilité à confirmer">réserve</span>}
+                    {a.added && <span className="frozen-tag" style={{ background: "var(--ok-soft)", color: "var(--ok)" }} title="Renfort ajouté à la main">renfort</span>}
                     <div className="muted" style={{ fontSize: 11 }}>{a.fonction || "fonction ?"}{a.pole ? ` · ${a.pole}` : ""} · {a.axe}</div>
                   </td>
                   {r.after[i].map((c, d) => (
-                    <td key={d} className={cellClass(c, r.changed[i][d], r.settings) + (wk[d] ? " wk" : "")}>
+                    <td key={d} className={cellClass(c, r.changed[i][d], r.settings) + (wk[d] ? " wk" : "") + (manual.has(`${a.matricule}|${d}`) ? " manual" : "")}>
                       {r.changed[i][d] && <s>{fmtShift(r.before[i][d])}</s>}
                       {fmtShift(c)}
                     </td>
@@ -475,6 +502,53 @@ function Transport({ r }: { r: OptimizationResult }) {
 }
 
 // ---------------------------------------------------------------------------
+// Modifications manuelles
+// ---------------------------------------------------------------------------
+
+function Modifications({ r }: { r: OptimizationResult }) {
+  const edits = (r.edits ?? []).slice().reverse();
+  return (
+    <>
+      <h3>Ce qui change pour le transport (par rapport à la version {Math.max(0, (r.version ?? 0) - 1)})</h3>
+      <div style={{ marginTop: 10 }}><TransportChangesTable changes={r.transportChanges ?? []} /></div>
+      <h3 style={{ marginTop: 26 }}>Modifications manuelles ({edits.length})</h3>
+      {edits.length === 0 ? (
+        <div className="empty">Aucune modification manuelle.</div>
+      ) : (
+        <div className="tablewrap" style={{ marginTop: 10 }}>
+          <table className="t">
+            <thead>
+              <tr>
+                <th>Version</th>
+                <th>Jour</th>
+                <th>Agent</th>
+                <th>Avant</th>
+                <th>Après</th>
+                <th>Motif</th>
+                <th>Par</th>
+              </tr>
+            </thead>
+            <tbody>
+              {edits.map((e, i) => (
+                <tr key={i}>
+                  <td><span className="badge indigo">v{e.version}</span></td>
+                  <td className="nowrap">{dayLabel(e.date)}</td>
+                  <td><b>{e.nom}</b> <span className="muted">{e.matricule}</span></td>
+                  <td className="mono">{e.before}</td>
+                  <td className="mono"><b>{e.after}</b></td>
+                  <td>{EDIT_MOTIFS[e.motif]}{e.comment ? <div className="muted small">{e.comment}</div> : null}</td>
+                  <td className="nowrap">{e.by ?? "—"}<div className="muted small">{new Date(e.at).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" })}</div></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Alertes
 // ---------------------------------------------------------------------------
 
@@ -534,7 +608,7 @@ function Alertes({ alerts }: { alerts: Alert[] }) {
 
 // ---------------------------------------------------------------------------
 
-export default function Results({ r, stale }: { r: OptimizationResult; stale?: boolean }) {
+export default function Results({ r, stale, editor }: { r: OptimizationResult; stale?: boolean; editor?: EditorProps }) {
   const [tab, setTab] = useState<TabId>("synthese");
   const [busy, setBusy] = useState<string | null>(null);
   const warnCount = r.alerts.filter((a) => a.level !== "info").length;
@@ -572,6 +646,7 @@ export default function Results({ r, stale }: { r: OptimizationResult; stale?: b
     { id: "echanges", label: "Échanges", icon: <IconSwap size={15} />, n: r.swaps.length },
     { id: "planning", label: "Planning corrigé", icon: <IconCalendar size={15} /> },
     { id: "transport", label: "Listes de transport", icon: <IconUsers size={15} /> },
+    ...(r.version ? [{ id: "modifs" as TabId, label: "Modifications", icon: <IconHistory size={15} />, n: r.edits?.length ?? 0 }] : []),
     { id: "alertes", label: "Alertes", icon: <IconAlert size={15} />, n: r.alerts.length },
   ];
 
@@ -589,7 +664,7 @@ export default function Results({ r, stale }: { r: OptimizationResult; stale?: b
           <div className="title">
             <span className="num done"><IconCheck size={16} /></span>
             <div>
-              <h2>Résultat</h2>
+              <h2>Résultat{r.version ? <span className="version">version {r.version}</span> : null}</h2>
               <p>Calculé le {new Date(r.generatedAt).toLocaleString("fr-FR")} · {r.dates.length} jours · {fmtNum(r.agents.length)} agents</p>
             </div>
           </div>
@@ -646,7 +721,8 @@ export default function Results({ r, stale }: { r: OptimizationResult; stale?: b
       </div>
       {tab === "synthese" && <Synthese r={r} />}
       {tab === "echanges" && <Echanges r={r} />}
-      {tab === "planning" && <PlanningView r={r} />}
+      {tab === "planning" && <PlanningView r={r} editor={editor} />}
+      {tab === "modifs" && <Modifications r={r} />}
       {tab === "transport" && <Transport r={r} />}
       {tab === "alertes" && <Alertes alerts={r.alerts} />}
     </div>

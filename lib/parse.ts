@@ -15,6 +15,7 @@ import {
   axeKey,
   isBlank,
   isExcelDateSerial,
+  isTersea,
   norm,
   normMatricule,
   parseDate,
@@ -174,6 +175,7 @@ interface AgentsLayout {
   poleCol: number; // « Pôles » (IT.xlsx) : FO / BO / SUPPORT
   etatCol: number; // « Etat du collaborateur » : ACTIF / INACTIF
   departCol: number; // « Date de départ »
+  companyCols: number[]; // Rattachement, CDO, Recap, Société… : pour repérer les employés TERSEA
 }
 
 export { axeKey } from "./util";
@@ -201,6 +203,11 @@ function detectAgentsLayout(rows: Rows): AgentsLayout | null {
     const poleCol = findCol(row, (n) => n === "pole" || n === "poles");
     const etatCol = findCol(row, (n) => n.startsWith("etat du collab") || n === "etat");
     const departCol = findCol(row, (n) => n === "date de depart");
+    const companyCols: number[] = [];
+    row.forEach((v, c) => {
+      const n = norm(v);
+      if (["rattachement", "cdo", "recap", "societe", "entreprise", "employeur", "prestataire", "client"].includes(n)) companyCols.push(c);
+    });
     const axeCols: { col: number; key: string }[] = [];
     row.forEach((v, c) => {
       const k = axeKey(v);
@@ -210,7 +217,7 @@ function detectAgentsLayout(rows: Rows): AgentsLayout | null {
     let nomCol = findCol(row, (n) => n.startsWith("nom"));
     if (nomCol < 0) nomCol = -1;
     const histCol = findCol(row, (n) => n.includes("historique") || n.includes("tardif"));
-    return { headerRow: h, matCol, nomCol, communeCols: prio.map((p) => p[1]), niveauCol, histCol, fonctionCol, axeCols, poleCol, etatCol, departCol };
+    return { headerRow: h, matCol, nomCol, communeCols: prio.map((p) => p[1]), niveauCol, histCol, fonctionCol, axeCols, poleCol, etatCol, departCol, companyCols };
   }
   return null;
 }
@@ -231,13 +238,15 @@ function readAgents(rows: Rows, l: AgentsLayout): AgentInfo[] {
       const v = axeName(row[a.col]);
       if (v) axes[a.key] = v;
     }
+    const fonction = l.fonctionCol >= 0 && !isBlank(row[l.fonctionCol]) ? str(row[l.fonctionCol]) : undefined;
     out.push({
       matricule: mat,
+      tersea: isTersea(fonction, ...l.companyCols.map((c) => row[c])) || undefined,
       nom: l.nomCol >= 0 ? str(row[l.nomCol]) || undefined : undefined,
       communes,
       niveau: l.niveauCol >= 0 ? parseLevel(row[l.niveauCol]) : "INCONNU",
       historique: l.histCol >= 0 ? Math.max(0, Math.round(toNumber(row[l.histCol]) ?? 0)) : 0,
-      fonction: l.fonctionCol >= 0 && !isBlank(row[l.fonctionCol]) ? str(row[l.fonctionCol]) : undefined,
+      fonction,
       axes: Object.keys(axes).length ? axes : undefined,
       pole: l.poleCol >= 0 && !isBlank(row[l.poleCol]) ? str(row[l.poleCol]).toUpperCase() : undefined,
       actif: l.etatCol >= 0 && !isBlank(row[l.etatCol]) ? norm(row[l.etatCol]) !== "inactif" : undefined,
@@ -345,6 +354,8 @@ interface AmenLayout {
   nomCol: number;
   texteCol: number;
   congeCol: number;
+  debutCol: number; // période de l'aménagement (jamais une colonne « Congé … »)
+  finCol: number;
 }
 
 function detectAmenLayout(rows: Rows): AmenLayout | null {
@@ -356,7 +367,10 @@ function detectAmenLayout(rows: Rows): AmenLayout | null {
     if (texteCol < 0) continue;
     const nomCol = findCol(row, (n) => n.startsWith("nom"));
     const congeCol = findCol(row, (n) => n.startsWith("conge"));
-    return { headerRow: h, matCol, nomCol, texteCol, congeCol };
+    const notConge = (n: string) => !n.startsWith("conge") && !n.includes("conge");
+    const debutCol = findCol(row, (n) => notConge(n) && (/^(date )?(de )?debut( |$)/.test(n) || (n.includes("amenagement") && n.includes("debut"))));
+    const finCol = findCol(row, (n) => notConge(n) && (/^(date )?(de )?fin( |$)/.test(n) || (n.includes("amenagement") && /(^| )fin( |$)/.test(n))));
+    return { headerRow: h, matCol, nomCol, texteCol, congeCol, debutCol, finCol };
   }
   return null;
 }
@@ -376,7 +390,9 @@ function readAmen(rows: Rows, l: AmenLayout): { list: Amenagement[]; levels: Age
       texte = "";
     }
     const d1 = l.congeCol >= 0 ? parseDate(row[l.congeCol]) : null;
-    const d2 = l.congeCol >= 0 ? parseDate(row[l.congeCol + 1]) : null;
+    const d2 = l.congeCol >= 0 && l.congeCol + 1 !== l.debutCol ? parseDate(row[l.congeCol + 1]) : null;
+    const a1 = texte && l.debutCol >= 0 ? parseDate(row[l.debutCol]) : null;
+    const a2 = texte && l.finCol >= 0 ? parseDate(row[l.finCol]) : null;
     if (!texte && !d1) continue;
     list.push({
       matricule: mat,
@@ -384,6 +400,8 @@ function readAmen(rows: Rows, l: AmenLayout): { list: Amenagement[]; levels: Age
       texte,
       congeDebut: d1 ?? undefined,
       congeFin: d2 ?? d1 ?? undefined,
+      debut: a1 ?? (a2 ? "0000-01-01" : undefined), // fin seule : depuis toujours
+      fin: a1 || a2 ? a2 ?? "9999-12-31" : undefined, // début seul : jusqu'à la fin
     });
   }
   return { list, levels };
@@ -485,6 +503,7 @@ export function parseWorkbooks(files: UploadedFile[]): ParsedInputs {
       cur.dateDepart = a.dateDepart;
     }
     if (a.mainList) cur.mainList = true;
+    if (a.tersea) cur.tersea = true;
     if (!cur.nom && a.nom) cur.nom = a.nom;
     cur.historique = Math.max(cur.historique, a.historique);
   };

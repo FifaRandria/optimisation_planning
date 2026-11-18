@@ -134,35 +134,36 @@ function axesWorkbook(s: SampleSet) {
 function amenagementsWorkbook(s: SampleSet) {
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet("Amenagements");
-  ws.addRow(["Matricule", "Nom et Prenom", "Aménagement", "Congé début", "Congé fin"]);
+  ws.addRow(["Matricule", "Nom et Prenom", "Aménagement", "Début aménagement", "Fin aménagement", "Congé début", "Congé fin"]);
   styleHeader(ws.getRow(1));
-  [12, 34, 50, 14, 14].forEach((w, i) => (ws.getColumn(i + 1).width = w));
+  [12, 34, 50, 18, 18, 14, 14].forEach((w, i) => (ws.getColumn(i + 1).width = w));
+  const dt = (iso?: string) => (iso ? new Date(iso + "T00:00:00Z") : null);
   s.amenagements.forEach((a) => {
-    const r = ws.addRow([a.matricule, a.nom, a.texte, a.debut ? new Date(a.debut + "T00:00:00Z") : null, a.fin ? new Date(a.fin + "T00:00:00Z") : null]);
-    r.getCell(4).numFmt = "dd/mm/yyyy";
-    r.getCell(5).numFmt = "dd/mm/yyyy";
+    const r = ws.addRow([a.matricule, a.nom, a.texte, dt(a.amDebut), dt(a.amFin), dt(a.debut), dt(a.fin)]);
+    for (const c of [4, 5, 6, 7]) r.getCell(c).numFmt = "dd/mm/yyyy";
   });
   readme(wb, [
     "Modèle : aménagements et congés (facultatif)",
     "• Matricule (obligatoire).",
-    "• Aménagement : texte libre. Tout agent avec un aménagement est FIGÉ (jamais échangé). Si le texte n'est pas compris, une alerte est levée.",
-    "• Congé début / Congé fin : dates. Aucun échange n'est fait sur ces jours pour cet agent.",
+    "• Aménagement : texte libre. Un agent avec un aménagement n'est jamais échangé. Si le texte n'est pas compris, une alerte est levée.",
+    "• Début aménagement / Fin aménagement (facultatif) : période de l'aménagement. L'agent n'est bloqué que ces jours-là et reste échangeable les autres jours de la semaine. Sans date : bloqué toute la semaine. Fin vide : jusqu'à la fin de la semaine.",
+    "• Congé début / Congé fin : dates de congé. Aucun échange n'est fait sur ces jours pour cet agent (ce ne sont PAS les dates de l'aménagement).",
     "Cette feuille peut être la feuille « Amenagement_S41 » existante : colonnes Matricules, Quartier, Statut d'agents, Aménagement, Congé.",
   ]);
   return wb;
 }
 
-export async function buildTemplate(name: TemplateName, full = false): Promise<Buffer> {
-  const s = buildSample(full ? 80 : 12);
+export async function buildTemplate(name: TemplateName, full = false, startIso?: string): Promise<Buffer> {
+  const s = buildSample(full ? 80 : 12, startIso);
   const wb = name === "planning" ? planningWorkbook(s) : name === "agents" ? agentsWorkbook(s) : name === "axes" ? axesWorkbook(s) : amenagementsWorkbook(s);
   const out = await wb.xlsx.writeBuffer();
   return Buffer.from(out as ArrayBuffer);
 }
 
 /** Jeu complet : 4 classeurs, utilisé par la démo (passe par le vrai parseur). */
-export async function buildDemoFiles(): Promise<{ name: string; buffer: Buffer }[]> {
+export async function buildDemoFiles(startIso?: string): Promise<{ name: string; buffer: Buffer }[]> {
   const names: TemplateName[] = ["planning", "agents", "axes", "amenagements"];
   const out: { name: string; buffer: Buffer }[] = [];
-  for (const n of names) out.push({ name: `exemple-${n}.xlsx`, buffer: await buildTemplate(n, true) });
+  for (const n of names) out.push({ name: `exemple-${n}.xlsx`, buffer: await buildTemplate(n, true, startIso) });
   return out;
 }

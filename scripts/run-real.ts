@@ -3,7 +3,7 @@
 import fs from "fs";
 import path from "path";
 import { parseWorkbooks } from "../lib/parse";
-import { isRoleOnly, optimize } from "../lib/optimize";
+import { amenDays, isRoleOnly, optimize } from "../lib/optimize";
 import { buildDemoFiles } from "../lib/templates";
 import { DEFAULT_SETTINGS, type Cell, type OptimizationResult, type ParsedInputs, type Settings } from "../lib/types";
 import { norm, weekKey } from "../lib/util";
@@ -79,8 +79,14 @@ export function checks(r: OptimizationResult, inputs?: ParsedInputs) {
   //    qui a un aménagement (sauf rôle seul quand le réglage « rôles échangeables » est activé)
   let amenTouched = 0;
   if (inputs) {
-    const freezes = new Set(inputs.amenagements.filter((a) => a.texte && !(r.settings.swapRoles && isRoleOnly(a.texte))).map((a) => a.matricule));
-    r.agents.forEach((a, i) => freezes.has(a.matricule) && r.changed[i].some(Boolean) && amenTouched++);
+    // aménagement sans période : toute la semaine ; avec période : seulement les jours couverts
+    const days = new Map<string, Set<number>>();
+    for (const a of inputs.amenagements.filter((a) => a.texte && !(r.settings.swapRoles && isRoleOnly(a.texte)))) {
+      const set = days.get(a.matricule) ?? new Set<number>();
+      amenDays(a, r.dates).forEach((d) => set.add(d));
+      days.set(a.matricule, set);
+    }
+    r.agents.forEach((a, i) => r.changed[i].some((ch, d) => ch && days.get(a.matricule)?.has(d)) && amenTouched++);
   }
   return { coverage, offCount, frozenTouched, rest, crossFn, crossPole, crossWeek, reserve, amenTouched };
 }
@@ -136,4 +142,5 @@ async function main() {
   for (const s of last.swaps.filter((x) => x.kind === "jour").slice(0, 1)) console.log("  ex. jour :", s.reason);
   for (const s of last.swaps.filter((x) => x.kind === "reserve").slice(0, 3)) console.log("  ex. réserve :", s.reason);
 }
-main();
+// lancé directement (pas importé par un autre script pour ses contrôles)
+if (/run-real/.test(process.argv[1] ?? "")) main();

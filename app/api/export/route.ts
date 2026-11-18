@@ -23,7 +23,7 @@ export async function POST(req: Request) {
     return new Response(new Uint8Array(buf), {
       headers: {
         "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        "Content-Disposition": `attachment; filename="${NAMES[kind]}-${result.dates[0] ?? "semaine"}.xlsx"`,
+        "Content-Disposition": `attachment; filename="${NAMES[kind]}-${result.dates[0] ?? "semaine"}${result.version ? `-v${result.version}` : ""}.xlsx"`,
       },
     });
   } catch (e) {

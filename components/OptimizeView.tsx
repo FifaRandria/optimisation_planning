@@ -394,7 +394,7 @@ export default function OptimizeView({ view }: { view: SettingsView }) {
             <div className="callout ok" style={{ marginTop: 18 }}>
               <IconHistory size={16} />
               <span>
-                Optimisation enregistrée dans l'historique. <Link href={`/historique/${result.historyId}`}>Ouvrir la fiche n° {result.historyId}</Link>
+                Optimisation enregistrée dans l'historique. <Link href={`/historique/${result.historyId}`}>Ouvrir la fiche n° {result.historyId}</Link> : c'est là que vous pourrez modifier le planning corrigé (renfort, absence, changement d'horaire).
               </span>
             </div>
           )}

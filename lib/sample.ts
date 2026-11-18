@@ -7,7 +7,7 @@ export interface SampleSet {
   planning: { matricule: string; nom: string; cells: { arr: number | string | null; dep: number | string | null }[] }[];
   agents: { matricule: string; nom: string; fonction: string; commune: string; niveau: string; historique: number }[];
   axes: { commune: string; axe19: string; axe21: string; ch19: string; ch21: string; km: number; min: number }[];
-  amenagements: { matricule: string; nom: string; texte: string; debut?: string; fin?: string }[];
+  amenagements: { matricule: string; nom: string; texte: string; debut?: string; fin?: string; amDebut?: string; amFin?: string }[];
 }
 
 function rng(seed: number) {
@@ -152,6 +152,13 @@ export function buildSample(n = 80, startIso = "2026-10-12", seed = 42): SampleS
   am(20, "Demande particulière à vérifier");
   am(25, "", 2, 3);
   am(31, "", 4, 4);
+  // aménagements datés : bloquent seulement les jours de leur période
+  const amDate = (idx: number, texte: string, amDebut: string, amFin?: string) => {
+    if (idx < agents.length) amenagements.push({ matricule: agents[idx].matricule, nom: agents[idx].nom, texte, amDebut, amFin });
+  };
+  amDate(36, "Pas de tardif (rendez-vous médical)", dates[1], dates[3]);
+  const shift = (iso: string, n: number) => new Date(Date.parse(iso + "T00:00:00Z") + n * 86400000).toISOString().slice(0, 10);
+  amDate(42, "Shift AM (formation terminée)", shift(dates[0], -21), shift(dates[0], -8));
   // congés visibles dans le planning
   for (const [idx, from, to] of [[25, 2, 3], [31, 4, 4]] as const) {
     if (idx < planning.length) for (let d = from; d <= to; d++) planning[idx].cells[d] = { arr: "CONGE", dep: "CONGE" };

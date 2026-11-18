@@ -24,7 +24,8 @@ export async function POST(req: Request) {
     const t0 = Date.now();
     const result = optimize(inputs, settings);
     const names = form.get("demo") === "1" ? ["Données d'exemple (fictives)"] : files.map((f) => f.name);
-    result.historyId = await saveOptimization(user, names, result, Date.now() - t0);
+    result.historyId = await saveOptimization(user, names, result, Date.now() - t0, inputs);
+    result.version = 0;
     return NextResponse.json(result);
   } catch (e) {
     return errorResponse(e);
