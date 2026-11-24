@@ -1,11 +1,18 @@
 import { buildDemoFiles } from "./templates";
+import { buildSiriusFiles } from "./sample-sirius";
+import { SITES, siteOf, type SiteId } from "./sites";
 import type { UploadedFile } from "./parse";
 import { DEFAULT_SETTINGS, type Settings } from "./types";
 import { nextMonday, todayIso } from "./util";
 
-export async function readFilesFromForm(form: FormData): Promise<UploadedFile[]> {
+/** Site choisi à l'import (champ « site » du formulaire). */
+export function readSite(form: FormData): SiteId {
+  return siteOf(form.get("site"));
+}
+
+export async function readFilesFromForm(form: FormData, site: SiteId = readSite(form)): Promise<UploadedFile[]> {
   // démo : semaine qui commence au prochain lundi, pour pouvoir essayer les modifications (les jours passés sont figés)
-  if (form.get("demo") === "1") return buildDemoFiles(nextMonday(todayIso()));
+  if (form.get("demo") === "1") return site === "sirius" ? buildSiriusFiles(nextMonday(todayIso())) : buildDemoFiles(nextMonday(todayIso()));
   const out: UploadedFile[] = [];
   for (const v of form.getAll("files")) {
     if (typeof v === "string") continue;
@@ -15,7 +22,7 @@ export async function readFilesFromForm(form: FormData): Promise<UploadedFile[]>
   return out;
 }
 
-export function readSettings(form: FormData): Settings {
+export function readSettings(form: FormData, site: SiteId = readSite(form)): Settings {
   const raw = form.get("settings");
   let s: unknown = {};
   try {
@@ -23,11 +30,11 @@ export function readSettings(form: FormData): Settings {
   } catch {
     /* réglages par défaut */
   }
-  return sanitizeSettings(s);
+  return sanitizeSettings(s, SITES[site].defaults);
 }
 
 /** Valide et borne des réglages reçus du client (valeurs absentes ou invalides = défaut). */
-export function sanitizeSettings(input: unknown): Settings {
+export function sanitizeSettings(input: unknown, D: Settings = DEFAULT_SETTINGS): Settings {
   const s = (input && typeof input === "object" ? input : {}) as Partial<Settings>;
   const num = (v: unknown, d: number, min: number, max: number) => {
     const n = Number(v);
@@ -38,7 +45,6 @@ export function sanitizeSettings(input: unknown): Settings {
     return l.length ? [...new Set(l)].sort((a, b) => a - b) : d;
   };
   const bool = (v: unknown, d: boolean) => (typeof v === "boolean" ? v : d);
-  const D = DEFAULT_SETTINGS;
   return {
     capacity: Math.round(num(s.capacity, D.capacity, 1, 100)),
     minRestHours: num(s.minRestHours, D.minRestHours, 0, 24),

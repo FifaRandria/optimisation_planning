@@ -2,11 +2,12 @@
 
 import { useState } from "react";
 import SettingsPanel from "./Settings";
-import { DEFAULT_SETTINGS, type Settings } from "@/lib/types";
+import type { Settings } from "@/lib/types";
+import { SITES, type SiteId } from "@/lib/sites";
 import { DEFAULT_USER_VISIBLE, SETTING_GROUPS, type SettingKey } from "@/lib/settings-meta";
 import { IconAlert, IconCheck, IconEye, IconLock } from "./Icons";
 
-export default function SettingsAdmin({ initialValues, initialVisible }: { initialValues: Settings; initialVisible: SettingKey[] }) {
+export default function SettingsAdmin({ site, initialValues, initialVisible }: { site: SiteId; initialValues: Settings; initialVisible: SettingKey[] }) {
   const [values, setValues] = useState(initialValues);
   const [visible, setVisible] = useState(new Set(initialVisible));
   const [busy, setBusy] = useState(false);
@@ -36,7 +37,7 @@ export default function SettingsAdmin({ initialValues, initialVisible }: { initi
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch("/api/settings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ values, userVisible: [...visible] }) });
+      const res = await fetch("/api/settings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ site, values, userVisible: [...visible] }) });
       const j = await res.json();
       if (!res.ok) throw new Error(j.error ?? "Enregistrement impossible.");
       setValues(j.values);
@@ -58,7 +59,7 @@ export default function SettingsAdmin({ initialValues, initialVisible }: { initi
             <span className="num"><IconEye size={16} /></span>
             <div>
               <h2>Visible par les utilisateurs</h2>
-              <p>Cochez ce que les utilisateurs peuvent voir et modifier. Tout le reste est masqué pour eux et prend la valeur par défaut ci-dessous (appliquée aussi côté serveur).</p>
+              <p>Cochez ce que les utilisateurs peuvent voir et modifier pour le site {SITES[site].name}. Tout le reste est masqué pour eux et prend la valeur par défaut ci-dessous (appliquée aussi côté serveur).</p>
             </div>
           </div>
           <button
@@ -107,18 +108,18 @@ export default function SettingsAdmin({ initialValues, initialVisible }: { initi
           <div className="title">
             <span className="num">2</span>
             <div>
-              <h2>Valeurs par défaut</h2>
-              <p>Proposées à chaque nouvelle optimisation. Les utilisateurs ne peuvent pas changer les réglages qui leur sont masqués.</p>
+              <h2>Valeurs par défaut · {SITES[site].name}</h2>
+              <p>Proposées à chaque nouvelle optimisation du site {SITES[site].name} ({SITES[site].place}). Les utilisateurs ne peuvent pas changer les réglages qui leur sont masqués.</p>
             </div>
           </div>
           <button
             className="btn ghost small"
             onClick={() => {
-              setValues(DEFAULT_SETTINGS);
+              setValues(SITES[site].defaults);
               touch();
             }}
           >
-            Valeurs recommandées (v2)
+            Valeurs recommandées
           </button>
         </div>
         <SettingsPanel
@@ -128,6 +129,7 @@ export default function SettingsAdmin({ initialValues, initialVisible }: { initi
             touch();
           }}
           advancedOpen
+          extraWaves={SITES[site].extraWaves}
         />
       </div>
 
@@ -135,7 +137,7 @@ export default function SettingsAdmin({ initialValues, initialVisible }: { initi
         {error ? (
           <span className="callout err" style={{ margin: 0 }}><IconAlert size={16} /><span>{error}</span></span>
         ) : saved ? (
-          <span className="saved"><IconCheck size={16} />Réglages enregistrés : ils s'appliquent aux prochaines optimisations.</span>
+          <span className="saved"><IconCheck size={16} />Réglages {SITES[site].name} enregistrés : ils s'appliquent aux prochaines optimisations de ce site.</span>
         ) : (
           <span className="muted">{dirty ? "Modifications non enregistrées." : "Aucune modification."}</span>
         )}

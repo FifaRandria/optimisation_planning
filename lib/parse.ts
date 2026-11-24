@@ -19,6 +19,7 @@ import {
   norm,
   normMatricule,
   parseDate,
+  parseDayMonthFr,
   parseLevel,
   parseTime,
   str,
@@ -69,7 +70,7 @@ function detectPlanningLayout(rows: Rows): PlanningLayout | null {
       for (let c = matCol + 1; c < r.length; c++) {
         const v = r[c];
         if (v === null || v === undefined || v === "") continue;
-        const typed = isExcelDateSerial(v) || v instanceof Date || /^\d{4}-\d{2}-\d{2}/.test(String(v)) || /^\d{1,2}[\/.-]\d{1,2}[\/.-]\d{4}$/.test(String(v));
+        const typed = isExcelDateSerial(v) || v instanceof Date || /^\d{4}-\d{2}-\d{2}/.test(String(v)) || /^\d{1,2}[\/.-]\d{1,2}[\/.-]\d{4}$/.test(String(v)) || parseDayMonthFr(v) !== null; // « lun-09-nov » (planning SIRIUS)
         if (!typed) continue;
         const iso = parseDate(v);
         if (iso) dateCols.push({ col: c, iso });
@@ -423,6 +424,7 @@ export function parseWorkbooks(files: UploadedFile[]): ParsedInputs {
   const detection: DetectedSource[] = [];
 
   const planCands: Candidate<PlanningLayout>[] = [];
+  const hiddenPlanCands: Candidate<PlanningLayout>[] = [];
   const axeCands: Candidate<AxesLayout>[] = [];
   const agentCands: Candidate<AgentsLayout>[] = [];
   const amenCands: Candidate<AmenLayout>[] = [];
@@ -440,10 +442,16 @@ export function parseWorkbooks(files: UploadedFile[]): ParsedInputs {
     }
     wb.SheetNames.forEach((name, i) => {
       const hidden = wb.Workbook?.Sheets?.[i]?.Hidden;
-      if (hidden) return;
       const rows = sheetRows(wb.Sheets[name]);
       if (rows.length === 0) return;
       const nn = norm(name);
+      // feuille masquée : seul un planning y est cherché, et seulement si aucune feuille visible n'en contient
+      // (le planning SIRIUS « Feuil1 » est masqué dans le fichier d'origine)
+      if (hidden) {
+        const hp = detectPlanningLayout(rows);
+        if (hp) hiddenPlanCands.push({ score: hp.dateCols.length, file: f.name, sheet: name, layout: hp });
+        return;
+      }
       const pl = detectPlanningLayout(rows);
       if (pl) planCands.push({ score: pl.dateCols.length + (nn.includes("planning agents") ? 100 : 0) + (nn.includes("s 1") ? 10 : 0), file: f.name, sheet: name, layout: pl });
       const ax = detectAxesLayout(rows);
@@ -463,6 +471,8 @@ export function parseWorkbooks(files: UploadedFile[]): ParsedInputs {
 
   // 2) Planning : on garde la meilleure feuille (celle qui contient le plus d'agents)
   let planning: Planning | undefined;
+  const fromHidden = planCands.length === 0 && hiddenPlanCands.length > 0;
+  if (fromHidden) planCands.push(...hiddenPlanCands);
   planCands.sort((a, b) => b.score - a.score);
   for (const c of planCands.slice(0, 3)) {
     const rows = loadSheet(c.file, c.sheet);
@@ -471,8 +481,10 @@ export function parseWorkbooks(files: UploadedFile[]): ParsedInputs {
     if (p.agents.length > 0 && (!planning || p.agents.length > planning.agents.length + 20)) planning = p;
     if (planning && c.score >= 100) break;
   }
-  if (planning) detection.push({ role: "planning", file: planning.file, sheet: planning.sheet, rows: planning.agents.length, note: `${planning.dates.length} jours : ${planning.dates[0]} → ${planning.dates[planning.dates.length - 1]}` });
+  if (planning) detection.push({ role: "planning", file: planning.file, sheet: planning.sheet, rows: planning.agents.length, note: `${planning.dates.length} jours : ${planning.dates[0]} → ${planning.dates[planning.dates.length - 1]}${fromHidden ? " · feuille masquée" : ""}` });
   else alerts.push({ level: "error", code: "planning-absent", message: "Aucun planning détecté. Il faut une feuille avec « Matricule », des dates et des colonnes heure d'arrivée / heure de départ." });
+  if (planning && fromHidden)
+    alerts.push({ level: "warn", code: "planning-masque", message: `Le planning a été lu dans la feuille masquée « ${planning.sheet} » (${planning.file}). Vérifiez que c'est bien le planning de la semaine.` });
 
   // 3) Axes : meilleure feuille
   let axes: AxeTable | undefined;
@@ -531,6 +543,18 @@ export function parseWorkbooks(files: UploadedFile[]): ParsedInputs {
     if (withPole) parts.push(`${withPole} avec pôle`);
     parts.push(`${withLevel} avec niveau`);
     detection.push({ role: "agents", file: c.file, sheet: c.sheet, rows: list.length, note: parts.join(", ") });
+  }
+
+  // 4 bis) Le planning porte parfois l'adresse de l'agent (planning SIRIUS : QUARTIER, Point de remisage/ramassage) :
+  // elle sert seulement aux agents de la liste qui n'ont aucune commune (les autres ne changent pas).
+  if (planning) {
+    const rows = loadSheet(planning.file, planning.sheet);
+    const lay = detectAgentsLayout(rows);
+    if (lay && lay.communeCols.length) {
+      const list = readAgents(rows, lay).filter((a) => a.communes.length && agentMap.get(a.matricule)?.communes.length === 0);
+      list.forEach((a) => (agentMap.get(a.matricule)!.communes = [...a.communes]));
+      if (list.length) detection.push({ role: "agents", file: planning.file, sheet: planning.sheet, rows: list.length, note: `adresses lues dans le planning : ${list.length} avec commune` });
+    }
   }
 
   // 5) Aménagements & congés

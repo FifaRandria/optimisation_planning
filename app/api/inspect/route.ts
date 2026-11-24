@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { parseWorkbooks } from "@/lib/parse";
 import { previewStats } from "@/lib/optimize";
-import { readFilesFromForm, readSettings } from "@/lib/server-utils";
+import { readFilesFromForm, readSettings, readSite } from "@/lib/server-utils";
 import { errorResponse, requireUser } from "@/lib/server/auth";
 import { effectiveSettings } from "@/lib/server/app-settings";
 
@@ -13,9 +13,10 @@ export async function POST(req: Request) {
   try {
     const user = await requireUser();
     const form = await req.formData();
-    const files = await readFilesFromForm(form);
+    const site = readSite(form);
+    const files = await readFilesFromForm(form, site);
     if (files.length === 0) return NextResponse.json({ error: "Aucun fichier reçu." }, { status: 400 });
-    const settings = await effectiveSettings(user, readSettings(form));
+    const settings = await effectiveSettings(user, site, readSettings(form, site));
     const inputs = parseWorkbooks(files);
     const stats = previewStats(inputs, settings);
     return NextResponse.json({ detection: inputs.detection, alerts: inputs.alerts, stats });

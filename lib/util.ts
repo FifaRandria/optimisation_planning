@@ -128,7 +128,36 @@ export function parseDate(v: unknown): string | null {
   if (m) return `${m[1]}-${m[2]}-${m[3]}`;
   m = s.match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{4})$/);
   if (m) return `${m[3]}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}`;
-  return null;
+  return parseDayMonthFr(s);
+}
+
+const FR_DAYS = ["dim", "lun", "mar", "mer", "jeu", "ven", "sam"];
+const FR_MONTHS = ["jan", "fev", "mar", "avr", "mai", "juin", "juil", "aou", "sep", "oct", "nov", "dec"];
+
+/**
+ * En-tête de jour sans année, comme dans le planning SIRIUS : « lun-09-nov », « mar. 10 nov. ».
+ * L'année est celle (de l'an dernier à l'an prochain) où ce jour de la semaine tombe à cette date, la plus proche d'aujourd'hui.
+ */
+export function parseDayMonthFr(v: unknown, today = todayIso()): string | null {
+  const s = norm(v).replace(/\./g, " ");
+  const m = s.match(/^(dim|lun|mar|mer|jeu|ven|sam)[a-z]*[\s-]+(\d{1,2})[\s-]+([a-z]+)$/);
+  if (!m) return null;
+  const month = m[3] === "mars" ? 2 : FR_MONTHS.findIndex((p) => m[3].startsWith(p === "juin" || p === "juil" ? p : p.slice(0, 3)));
+  const day = Number(m[2]);
+  if (month < 0 || day < 1 || day > 31) return null;
+  const y0 = Number(today.slice(0, 4));
+  let best: string | null = null;
+  let bestGap = Infinity;
+  for (const y of [y0 - 1, y0, y0 + 1]) {
+    const d = new Date(Date.UTC(y, month, day));
+    if (d.getUTCDate() !== day || FR_DAYS[d.getUTCDay()] !== m[1]) continue;
+    const gap = Math.abs(d.getTime() - new Date(today + "T00:00:00Z").getTime());
+    if (gap < bestGap) {
+      bestGap = gap;
+      best = isoDate(d);
+    }
+  }
+  return best;
 }
 
 /** clé de semaine (lundi ISO) d'une date ISO */

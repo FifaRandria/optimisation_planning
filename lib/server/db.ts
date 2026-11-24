@@ -2,6 +2,7 @@
 import { Pool, type PoolClient, type QueryResultRow } from "pg";
 import { DEFAULT_SETTINGS } from "../types";
 import { DEFAULT_USER_VISIBLE } from "../settings-meta";
+import { SITE_IDS, SITES } from "../sites";
 import { hashPassword } from "./password";
 
 const g = globalThis as unknown as { __pgPool?: Pool; __schemaReady?: Promise<void> };
@@ -88,6 +89,18 @@ CREATE TABLE IF NOT EXISTS planning_versions (
   result_gz        BYTEA NOT NULL,              -- résultat complet de la version (JSON compressé)
   UNIQUE (optimization_id, version)
 );
+
+-- sites (Connecteo Andranomena, SIRIUS Galaxie Andraharo) : historique et réglages séparés
+ALTER TABLE optimizations ADD COLUMN IF NOT EXISTS site TEXT NOT NULL DEFAULT 'connecteo';
+CREATE INDEX IF NOT EXISTS optimizations_site_idx ON optimizations(site, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS site_settings (
+  site           TEXT PRIMARY KEY,
+  setting_values JSONB NOT NULL,
+  user_visible   JSONB NOT NULL,
+  updated_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_by     INTEGER REFERENCES users(id) ON DELETE SET NULL
+);
 `;
 
 /** Crée les tables (si besoin), les réglages par défaut et l'admin initial (si aucun admin n'existe). */
@@ -97,6 +110,16 @@ export async function initSchema(client: Pool | PoolClient = pool()): Promise<{ 
     `INSERT INTO app_settings (id, setting_values, user_visible) VALUES (1, $1, $2) ON CONFLICT (id) DO NOTHING`,
     [JSON.stringify(DEFAULT_SETTINGS), JSON.stringify(DEFAULT_USER_VISIBLE)]
   );
+  // réglages par site : Connecteo reprend les réglages existants de l'organisation (app_settings)
+  for (const id of SITE_IDS) {
+    await client.query(
+      id === "connecteo"
+        ? `INSERT INTO site_settings (site, setting_values, user_visible, updated_by)
+           SELECT $1, setting_values, user_visible, updated_by FROM app_settings WHERE id = 1 ON CONFLICT (site) DO NOTHING`
+        : `INSERT INTO site_settings (site, setting_values, user_visible) VALUES ($1, $2, $3) ON CONFLICT (site) DO NOTHING`,
+      id === "connecteo" ? [id] : [id, JSON.stringify(SITES[id].defaults), JSON.stringify(DEFAULT_USER_VISIBLE)]
+    );
+  }
   const admins = await client.query(`SELECT 1 FROM users WHERE role = 'admin' LIMIT 1`);
   if (admins.rowCount) return { adminCreated: null };
   const username = (process.env.ADMIN_USERNAME || "admin").trim().toLowerCase();

@@ -4,6 +4,7 @@ import { IconArrowRight, IconBus, IconCalendar, IconHistory, IconSparkles, IconS
 import { pageUser } from "@/lib/server/auth";
 import { dashboard, type HistoryItem } from "@/lib/server/history";
 import { dayLabel } from "@/lib/util";
+import { SITES } from "@/lib/sites";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Tableau de bord · Optimiseur de transport" };
@@ -129,6 +130,15 @@ export default async function DashboardPage() {
                 <li><span><i className="dot" style={{ background: "var(--primary)" }} />Même jour</span><b>{fmt(d.swaps.jour)}</b></li>
                 <li><span><i className="dot" style={{ background: "var(--warn)" }} />Jour OFF</span><b>{fmt(d.swaps.off)}</b></li>
                 <li><span><i className="dot" style={{ background: "var(--accent)" }} />Réserve hors planning</span><b>{fmt(d.swaps.reserve)}</b></li>
+              </ul>
+              <h2 style={{ marginTop: 22 }}>Par site</h2>
+              <ul className="kv">
+                {d.perSite.map((s) => (
+                  <li key={s.site}>
+                    <span>{SITES[s.site].name} <span className="muted small">· {SITES[s.site].place}</span></span>
+                    <b>{s.runs ? `${fmt(s.runs)} optim. · −${fmt(s.saved)} véh.` : "—"}</b>
+                  </li>
+                ))}
               </ul>
               {isAdmin && d.users && (
                 <>

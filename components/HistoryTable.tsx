@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import type { HistoryItem } from "@/lib/server/history";
 import { dayLabel, norm } from "@/lib/util";
+import { SITES, SITE_IDS } from "@/lib/sites";
 import { IconAlert, IconCalendar, IconSearch, IconTrash } from "./Icons";
 
 const fmtDateTime = (iso: string) => new Date(iso).toLocaleString("fr-FR", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
@@ -13,6 +14,7 @@ export default function HistoryTable({ items, isAdmin }: { items: HistoryItem[];
   const router = useRouter();
   const [q, setQ] = useState("");
   const [who, setWho] = useState("all");
+  const [site, setSite] = useState("all");
   const [busy, setBusy] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const authors = useMemo(() => [...new Set(items.map((i) => i.userName ?? "Compte supprimé"))].sort(), [items]);
@@ -21,6 +23,7 @@ export default function HistoryTable({ items, isAdmin }: { items: HistoryItem[];
   const shown = items.filter(
     (i) =>
       (who === "all" || (i.userName ?? "Compte supprimé") === who) &&
+      (site === "all" || i.site === site) &&
       (!nq || [i.label, i.userName ?? "", ...i.files].some((t) => norm(t).includes(nq)))
   );
 
@@ -54,6 +57,12 @@ export default function HistoryTable({ items, isAdmin }: { items: HistoryItem[];
           <IconSearch size={15} />
           <input type="search" placeholder="Rechercher un planning, un fichier, un auteur…" value={q} onChange={(e) => setQ(e.target.value)} />
         </div>
+        <select className="select" value={site} onChange={(e) => setSite(e.target.value)} aria-label="Filtrer par site">
+          <option value="all">Tous les sites</option>
+          {SITE_IDS.map((s) => (
+            <option key={s} value={s}>{SITES[s].name} · {SITES[s].place}</option>
+          ))}
+        </select>
         {isAdmin && authors.length > 1 && (
           <select className="select" value={who} onChange={(e) => setWho(e.target.value)} aria-label="Filtrer par auteur">
             <option value="all">Tous les auteurs</option>
@@ -76,6 +85,7 @@ export default function HistoryTable({ items, isAdmin }: { items: HistoryItem[];
             <tr>
               <th>N°</th>
               <th>Date</th>
+              <th>Site</th>
               <th>Planning</th>
               {isAdmin && <th>Auteur</th>}
               <th className="c">Agents</th>
@@ -92,6 +102,7 @@ export default function HistoryTable({ items, isAdmin }: { items: HistoryItem[];
                 <tr key={i.id}>
                   <td className="muted">{i.id}</td>
                   <td>{fmtDateTime(i.createdAt)}</td>
+                  <td><span className={"site-badge " + i.site} title={SITES[i.site].place}>{SITES[i.site].name}</span></td>
                   <td>
                     <Link href={`/historique/${i.id}`} className="row-link">
                       <IconCalendar size={13} /> {i.periodStart && i.periodEnd ? `${dayLabel(i.periodStart)} → ${dayLabel(i.periodEnd)}` : i.label}

@@ -1,4 +1,5 @@
 import ExcelJS from "exceljs";
+import { siteLabel, siteOf } from "./sites";
 import { EDIT_MOTIFS, type Cell, type Group, type OptimizationResult } from "./types";
 import { dayLabel, fmtTime } from "./util";
 import { waveLabel } from "./waves";
@@ -158,7 +159,7 @@ function sheetSynthese(wb: ExcelJS.Workbook, r: OptimizationResult) {
   ws.addRow([`Échanges proposés : ${r.swaps.length} (dont ${nOff} échanges de jour OFF)`]);
   const st = r.settings;
   ws.addRow([
-    `Réglages : ${st.capacity} places/véhicule, repos ${st.minRestHours} h, ramassage à ${st.pickupHours.join("h, ")}h, remisage à ${st.dropHours.join("h, ")}h, ` +
+    `Site : ${siteLabel(siteOf(r.site))}. Réglages : ${st.capacity} places/véhicule, repos ${st.minRestHours} h, ramassage à ${st.pickupHours.join("h, ")}h, remisage à ${st.dropHours.join("h, ")}h, ` +
       `« Axe 21h » pour ${st.axe21Waves.length ? st.axe21Waves.join("h, ") + "h" : "aucune vague"}, même fonction ${st.respectFunction ? "oui" : "non"}, ` +
       `échange OFF ${st.offSwap ? "oui" : "non"}, équité tardifs ${st.fairnessWeight}, équité week-ends ${st.weekendWeight}`,
   ]);

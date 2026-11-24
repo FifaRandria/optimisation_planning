@@ -1,13 +1,15 @@
-// Historique des optimisations : chacun voit les siennes, un admin voit tout.
+// Historique des optimisations : chacun voit les siennes, un admin voit tout. Chaque optimisation appartient à un site.
 import { gunzipSync, gzipSync } from "zlib";
 import type { OptimizationResult, ParsedInputs } from "../types";
 import type { PublicUser } from "../settings-meta";
 import { dayLabel } from "../util";
+import { SITES, siteOf, type SiteId } from "../sites";
 import { HttpError } from "./auth";
 import { q, q1 } from "./db";
 
 export interface HistoryItem {
   id: number;
+  site: SiteId;
   createdAt: string;
   label: string;
   userId: number | null;
@@ -27,7 +29,7 @@ export interface HistoryItem {
 }
 
 // vehicles_after = véhicules de la DERNIÈRE version (modifications manuelles comprises)
-const COLS = `o.id, o.created_at, o.label, o.user_id, u.display_name AS user_name, o.files, o.period_start, o.period_end, o.agents,
+const COLS = `o.id, o.site, o.created_at, o.label, o.user_id, u.display_name AS user_name, o.files, o.period_start, o.period_end, o.agents,
   o.vehicles_before, COALESCE(lv.vehicles, o.vehicles_after) AS vehicles_after, o.swaps, o.swaps_off, o.swaps_reserve, o.duration_ms,
   COALESCE(lv.version, 0) AS version, (o.inputs_gz IS NOT NULL) AS editable`;
 const FROM = `optimizations o LEFT JOIN users u ON u.id = o.user_id
@@ -35,6 +37,7 @@ const FROM = `optimizations o LEFT JOIN users u ON u.id = o.user_id
 
 interface Row {
   id: number;
+  site: string;
   created_at: Date;
   label: string;
   user_id: number | null;
@@ -57,6 +60,7 @@ const iso = (d: Date | string | null) => (d == null ? null : typeof d === "strin
 
 const toItem = (r: Row): HistoryItem => ({
   id: r.id,
+  site: siteOf(r.site),
   createdAt: new Date(r.created_at).toISOString(),
   label: r.label,
   userId: r.user_id,
@@ -80,11 +84,12 @@ const scope = (user: PublicUser, alias = "o") => (user.role === "admin" ? { sql:
 
 export async function saveOptimization(user: PublicUser, files: string[], result: OptimizationResult, durationMs: number, inputs: ParsedInputs): Promise<number> {
   const d = result.dates;
-  const label = d.length ? `Planning du ${dayLabel(d[0])} au ${dayLabel(d[d.length - 1])}` : "Planning";
+  const site = siteOf(result.site);
+  const label = `${SITES[site].name} · ` + (d.length ? `Planning du ${dayLabel(d[0])} au ${dayLabel(d[d.length - 1])}` : "Planning");
   const row = await q1<{ id: number }>(
     `INSERT INTO optimizations (user_id, label, files, period_start, period_end, agents, vehicles_before, vehicles_after,
-       swaps, swaps_off, swaps_reserve, duration_ms, settings, result_gz, inputs_gz)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING id`,
+       swaps, swaps_off, swaps_reserve, duration_ms, settings, result_gz, inputs_gz, site)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING id`,
     [
       user.id,
       label,
@@ -101,6 +106,7 @@ export async function saveOptimization(user: PublicUser, files: string[], result
       JSON.stringify(result.settings),
       gzipSync(Buffer.from(JSON.stringify(result))),
       gzipSync(Buffer.from(JSON.stringify(inputs))),
+      site,
     ]
   );
   return row!.id;
@@ -120,7 +126,7 @@ export async function getOptimization(user: PublicUser, id: number): Promise<{ i
   if (!r) throw new HttpError(404, "Optimisation introuvable.");
   if (user.role !== "admin" && r.user_id !== user.id) throw new HttpError(403, "Cette optimisation ne vous appartient pas.");
   const result = JSON.parse(gunzipSync(r.result_gz).toString("utf8")) as OptimizationResult;
-  return { item: toItem(r), result: { ...result, historyId: r.id, version: 0 } };
+  return { item: toItem(r), result: { ...result, site: siteOf(r.site), historyId: r.id, version: 0 } };
 }
 
 export async function deleteOptimization(user: PublicUser, id: number): Promise<void> {
@@ -141,6 +147,7 @@ export interface Dashboard {
   series: { id: number; label: string; date: string; before: number; after: number }[];
   recent: HistoryItem[];
   perUser: { name: string; runs: number; saved: number }[];
+  perSite: { site: SiteId; runs: number; saved: number; before: number }[];
   users?: { total: number; admins: number; active: number; pendingPassword: number };
 }
 
@@ -176,6 +183,10 @@ export async function dashboard(user: PublicUser): Promise<Dashboard> {
       .map((i) => ({ id: i.id, label: i.label, date: i.createdAt, before: i.vehiclesBefore, after: i.vehiclesAfter })),
     recent: items.slice(0, 6),
     perUser: [...perUserMap.entries()].map(([name, v]) => ({ name, ...v })).sort((a, b) => b.saved - a.saved),
+    perSite: (Object.keys(SITES) as SiteId[]).map((site) => {
+      const l = items.filter((i) => i.site === site);
+      return { site, runs: l.length, saved: l.reduce((s, i) => s + i.vehiclesBefore - i.vehiclesAfter, 0), before: l.reduce((s, i) => s + i.vehiclesBefore, 0) };
+    }),
   };
   if (user.role === "admin") {
     const u = await q1<{ total: string; admins: string; active: string; pending: string }>(

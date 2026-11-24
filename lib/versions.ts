@@ -251,6 +251,7 @@ export function buildVersion(base: OptimizationResult, inputs: ParsedInputs, req
     alerts,
     detection: base.detection,
     historyId: base.historyId,
+    site: base.site,
     version: ctx.version,
     edits: [...(base.edits ?? []), ...newEdits],
     transportChanges: transportDiff(base.groupsAfter, r.groupsAfter),

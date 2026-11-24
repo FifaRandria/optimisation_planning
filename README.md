@@ -89,7 +89,7 @@ Première connexion : identifiant `admin`, mot de passe `ADMIN_PASSWORD` de `.en
 - **Données** : l'historique conserve le résultat complet (compressé) dans PostgreSQL. Il contient des noms d'agents : la base est confidentielle, comme les fichiers d'entrée.
 
 ### Utilisation
-1. Déposer les fichiers Excel, ou cliquer « Essayer avec des données d'exemple ».
+1. Choisir le **site** (Connecteo Andranomena ou SIRIUS Galaxie Andraharo), puis déposer les fichiers Excel de ce site, ou cliquer « Essayer avec des données d'exemple ».
 2. Vérifier ce que l'outil a détecté et ajuster les réglages.
 3. Cliquer « Optimiser ». On obtient la synthèse avant/après, les échanges proposés, le planning corrigé (cases modifiées en jaune), les listes de transport par axe et par chauffeur, et les alertes.
 4. Télécharger le planning corrigé, les échanges ou le classeur complet.
@@ -133,6 +133,21 @@ Les feuilles sont **reconnues automatiquement par leurs en-têtes** : leur nom e
 | **Aménagements** (facultatif) | `Matricule`, `Aménagement` (texte libre), `Début aménagement` / `Fin aménagement` (facultatif), dates de congé. | Amenagement_S41 |
 
 Des modèles Excel vides sont téléchargeables depuis l'écran.
+
+### Sites : Connecteo et SIRIUS
+
+Le transport part de deux sites, **optimisés séparément** :
+
+| Site | Lieu | Vagues par défaut |
+|---|---|---|
+| **Connecteo** | Andranomena, zone Futura | ramassage 6h ; remisages 18h → 23h |
+| **SIRIUS** | Galaxie Andraharo | shifts AM (6h–13h) et PM (13h–21h) : ramassage 6h, remisage 21h (13h et 11h activables) |
+
+- Le site est choisi **avant** de déposer les fichiers. La table des axes fournie doit être celle **au départ de ce site** (SIRIUS a ses propres axes et chauffeurs).
+- Les règles d'échange sont les mêmes (même fonction, paires OFF, réserve, aménagements, TERSEA), mais un agent n'est jamais échangé ni remplacé par un agent d'un autre site : chaque optimisation ne contient que les fichiers d'un site.
+- Chaque site a ses **réglages** (Administration › Réglages, un onglet par site) et son **historique** (colonne et filtre « Site »). Les optimisations antérieures aux sites sont rattachées à Connecteo, et Connecteo reprend les réglages de l'organisation existants.
+- Le planning SIRIUS d'origine (`LISTE_CSA_BO_MVOLA_SHIFTE_SIRUIS…`) est lu tel quel : en-têtes de jour sans année (« lun-09-nov »), feuille `Feuil1` masquée, adresse dans la colonne `QUARTIER`.
+- Jeu de test fictif SIRIUS : `npx tsx scripts/fictif-sirius.ts [lundi]` écrit planning, agents, axes et aménagements dans `docs/fichiers-test/sirius-semaine-<lundi>/` (axes et chauffeurs **inventés**, à remplacer par la vraie table).
 
 ---
 

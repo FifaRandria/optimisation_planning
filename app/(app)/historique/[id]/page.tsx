@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { PageHeader } from "@/components/AppShell";
+import { SITES } from "@/lib/sites";
 import Results from "@/components/Results";
 import { IconAlert } from "@/components/Icons";
 import { HttpError, pageUser } from "@/lib/server/auth";
@@ -58,7 +59,7 @@ export default async function HistoryDetailPage({ params, searchParams }: { para
         title={item.label}
         subtitle={
           <>
-            Calculée le {fmtDateTime(item.createdAt)}
+            <span className={"site-badge " + item.site}>{SITES[item.site].name}</span> {SITES[item.site].place} · Calculée le {fmtDateTime(item.createdAt)}
             {item.userName ? ` par ${item.userName}` : ""} · {item.agents} agents · en {(item.durationMs / 1000).toFixed(1)} s
           </>
         }

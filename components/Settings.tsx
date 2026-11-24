@@ -11,6 +11,8 @@ interface Props {
   show?: (k: SettingKey) => boolean;
   /** Ouvre d'office la partie « avancés » (page d'administration). */
   advancedOpen?: boolean;
+  /** Heures proposées en plus pour le site (SIRIUS : 13h, changement AM / PM ; 11h, fin AM du samedi). */
+  extraWaves?: { pickup: number[]; drop: number[] };
 }
 
 const PICKUP_CHOICES = [5, 6, 7];
@@ -53,7 +55,10 @@ function Switch({ checked, onChange, title, children }: { checked: boolean; onCh
   );
 }
 
-export default function SettingsPanel({ settings, onChange, show = () => true, advancedOpen }: Props) {
+export default function SettingsPanel({ settings, onChange, show = () => true, advancedOpen, extraWaves }: Props) {
+  const choices = (base: number[], extra: number[] = [], active: number[]) => [...new Set([...base, ...extra, ...active])].sort((a, b) => a - b);
+  const pickupChoices = choices(PICKUP_CHOICES, extraWaves?.pickup, settings.pickupHours);
+  const dropChoices = choices(DROP_CHOICES, extraWaves?.drop, settings.dropHours);
   const set = <K extends keyof Settings>(k: K, v: Settings[K]) => onChange({ ...settings, [k]: v });
   const num = (k: keyof Settings) => (e: React.ChangeEvent<HTMLInputElement>) => {
     const n = Number(e.target.value);
@@ -86,7 +91,7 @@ export default function SettingsPanel({ settings, onChange, show = () => true, a
             </p>
             <div className="waves-row">
               <div className="wlabel" style={{ color: "var(--pickup)" }}>Ramassage<br />(arrivée)</div>
-              {PICKUP_CHOICES.map((h) => (
+              {pickupChoices.map((h) => (
                 <WaveTile
                   key={h}
                   hour={h}
@@ -102,7 +107,7 @@ export default function SettingsPanel({ settings, onChange, show = () => true, a
             </div>
             <div className="waves-row">
               <div className="wlabel" style={{ color: "var(--drop)" }}>Remisage<br />(sortie)</div>
-              {DROP_CHOICES.map((h) => (
+              {dropChoices.map((h) => (
                 <WaveTile
                   key={h}
                   hour={h}

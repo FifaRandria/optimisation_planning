@@ -638,3 +638,29 @@ table.plan-t.editable td.sel { outline: 3px solid var(--primary); outline-offset
 .reasons { margin: 8px 0 0; padding-left: 18px; font-size: 12.5px; color: var(--text-2); line-height: 1.5; display: grid; gap: 6px; }
 .hit-list { display: grid; gap: 8px; max-height: 280px; overflow: auto; }
 .hit { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px; }
+
+/* ---------------------------------------------------------------- Sites (Connecteo / SIRIUS) */
+.site-pick { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px; }
+.site-opt {
+  display: flex; align-items: flex-start; gap: 12px; text-align: left; padding: 14px 16px;
+  border: 1.5px solid var(--border); border-radius: var(--r); background: var(--surface); color: var(--text);
+  font: inherit; cursor: pointer; transition: border-color .15s, background .15s;
+}
+.site-opt:hover { border-color: var(--border-strong); }
+.site-opt:disabled { cursor: default; opacity: .7; }
+.site-opt .radio { flex: none; width: 18px; height: 18px; margin-top: 2px; border-radius: 50%; border: 2px solid var(--border-strong); }
+.site-opt.on { border-color: var(--primary); background: var(--primary-soft); }
+.site-opt.on .radio { border-color: var(--primary); box-shadow: inset 0 0 0 3px var(--surface), inset 0 0 0 9px var(--primary); }
+.site-opt.sirius.on { border-color: var(--pickup); background: var(--pickup-soft); }
+.site-opt.sirius.on .radio { border-color: var(--pickup); box-shadow: inset 0 0 0 3px var(--surface), inset 0 0 0 9px var(--pickup); }
+.site-opt .place { color: var(--muted); font-weight: 500; }
+.site-opt small { display: block; color: var(--muted); margin-top: 2px; }
+
+.site-badge { display: inline-flex; align-items: center; font-size: 11.5px; font-weight: 700; padding: 1px 8px; border-radius: 999px; white-space: nowrap; background: var(--primary-soft); color: var(--primary); }
+.site-badge.sirius { background: var(--pickup-soft); color: var(--pickup); }
+
+.site-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 18px; }
+.site-tab { display: inline-flex; gap: 6px; align-items: baseline; padding: 8px 14px; border-radius: 999px; border: 1.5px solid var(--border); background: var(--surface); color: var(--text-2); text-decoration: none; }
+.site-tab span { color: var(--muted); font-size: 13px; }
+.site-tab.on { border-color: var(--primary); background: var(--primary-soft); color: var(--primary); }
+.site-tab.sirius.on { border-color: var(--pickup); background: var(--pickup-soft); color: var(--pickup); }

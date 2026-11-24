@@ -5,10 +5,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import SettingsPanel from "@/components/Settings";
 import Results from "@/components/Results";
 import { PageHeader } from "@/components/AppShell";
-import { IconAlert, IconArrowRight, IconBook, IconCalendar, IconCheck, IconFile, IconHistory, IconLock, IconSparkles, IconUpload, IconUsers, IconX } from "@/components/Icons";
+import { IconAlert, IconArrowRight, IconBook, IconBus, IconCalendar, IconCheck, IconFile, IconHistory, IconLock, IconSparkles, IconUpload, IconUsers, IconX } from "@/components/Icons";
 import type { Alert, DetectedSource, OptimizationResult, Settings } from "@/lib/types";
 import type { SettingKey, SettingsView } from "@/lib/settings-meta";
 import { dayLabel } from "@/lib/util";
+import { DEFAULT_SITE, SITES, SITE_IDS, type SiteId } from "@/lib/sites";
 
 interface Stats {
   axeColumns: string[];
@@ -53,7 +54,10 @@ function Meter({ value }: { value: number }) {
   );
 }
 
-export default function OptimizeView({ view }: { view: SettingsView }) {
+export default function OptimizeView({ views }: { views: Record<SiteId, SettingsView> }) {
+  // le site est choisi avant tout : il fixe les réglages par défaut, et l'optimisation reste séparée par site
+  const [site, setSite] = useState<SiteId>(DEFAULT_SITE);
+  const view = views[site];
   const isAdmin = view.role === "admin";
   const show = (k: SettingKey) => isAdmin || view.userVisible.includes(k);
   const [files, setFiles] = useState<File[]>([]);
@@ -74,12 +78,13 @@ export default function OptimizeView({ view }: { view: SettingsView }) {
   const buildForm = useCallback(
     (withSettings: boolean) => {
       const fd = new FormData();
+      fd.append("site", site);
       if (demo) fd.append("demo", "1");
       else files.forEach((f) => fd.append("files", f, f.name));
       fd.append("settings", JSON.stringify(withSettings ? settings : { ...view.values, pickupHours: settings.pickupHours, dropHours: settings.dropHours, axe21Waves: settings.axe21Waves, swapRoles: settings.swapRoles }));
       return fd;
     },
-    [demo, files, settings]
+    [demo, files, settings, site, view]
   );
 
   // Aperçu automatique dès que les fichiers changent
@@ -101,13 +106,21 @@ export default function OptimizeView({ view }: { view: SettingsView }) {
       .catch((e) => seq === inspectSeq.current && setError((e as Error).message))
       .finally(() => seq === inspectSeq.current && setInspecting(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [files, demo, settings.pickupHours, settings.dropHours, settings.axe21Waves, settings.swapRoles]);
+  }, [files, demo, site, settings.pickupHours, settings.dropHours, settings.axe21Waves, settings.swapRoles]);
 
   // un réglage modifié après un calcul : le résultat affiché n'est plus à jour
   useEffect(() => {
     if (result) setStale(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settings]);
+
+  function chooseSite(s: SiteId) {
+    if (s === site) return;
+    setSite(s);
+    setSettings(views[s].values); // réglages par défaut du nouveau site
+    setResult(null);
+    setStale(false);
+  }
 
   function addFiles(list: FileList | File[]) {
     const incoming = Array.from(list).filter((f) => /\.(xlsx|xlsm|xls)$/i.test(f.name));
@@ -163,7 +176,7 @@ export default function OptimizeView({ view }: { view: SettingsView }) {
     statusCls = "ready";
     statusTxt = (
       <>
-        <b>Prêt</b> · {fmtNum(st.planningAgents)} agents · {st.dates.length} jours · {fmtNum(st.pickups + st.lateShifts)} trajets à optimiser
+        <b>Prêt</b> · {SITES[site].name} · {fmtNum(st.planningAgents)} agents · {st.dates.length} jours · {fmtNum(st.pickups + st.lateShifts)} trajets à optimiser
         {result && stale && <> · <span style={{ color: "var(--warn)" }}>réglages modifiés : relancez le calcul</span></>}
       </>
     );
@@ -193,10 +206,35 @@ export default function OptimizeView({ view }: { view: SettingsView }) {
         <div className="card">
           <div className="card-head">
             <div className="title">
+              <span className="num done"><IconBus size={16} /></span>
+              <div>
+                <h2>Site</h2>
+                <p>Chaque site a ses propres axes, réglages et historique. Les agents de deux sites ne sont jamais échangés entre eux.</p>
+              </div>
+            </div>
+          </div>
+          <div className="site-pick" role="radiogroup" aria-label="Site de transport">
+            {SITE_IDS.map((id) => (
+              <button key={id} type="button" role="radio" aria-checked={site === id} className={"site-opt " + id + (site === id ? " on" : "")} onClick={() => chooseSite(id)} disabled={running}>
+                <span className="radio" />
+                <span>
+                  <b>{SITES[id].name}</b> <span className="place">{SITES[id].place}</span>
+                  <small>{SITES[id].description}</small>
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="card">
+          <div className="card-head">
+            <div className="title">
               <span className={"num" + (ready ? " done" : "")}>{ready ? <IconCheck size={16} /> : 1}</span>
               <div>
                 <h2>Fichiers Excel</h2>
-                <p>Planning S+1, liste des agents (Personnes-par-fonction), table des axes, aménagements. Un ou plusieurs fichiers, dans n'importe quel ordre.</p>
+                <p>
+                  Fichiers du site <b>{SITES[site].name}</b> : planning S+1, liste des agents, table des axes <b>au départ de {SITES[site].place}</b>, aménagements. Un ou plusieurs fichiers, dans n'importe quel ordre.
+                </p>
               </div>
             </div>
           </div>
@@ -212,7 +250,7 @@ export default function OptimizeView({ view }: { view: SettingsView }) {
             <div className="sub">Les feuilles utiles sont reconnues automatiquement grâce à leurs en-têtes.</div>
             <div className="actions">
               <button className="btn primary" onClick={() => inputRef.current?.click()}><IconFile size={16} />Choisir des fichiers…</button>
-              <button className="btn" onClick={() => { setFiles([]); setResult(null); setDemo(true); }}><IconSparkles size={16} />Essayer avec des données d'exemple</button>
+              <button className="btn" onClick={() => { setFiles([]); setResult(null); setDemo(true); }}><IconSparkles size={16} />Essayer avec des données d'exemple {SITES[site].name}</button>
             </div>
             <input ref={inputRef} type="file" accept=".xlsx,.xlsm" multiple hidden onChange={(e) => { if (e.target.files) addFiles(e.target.files); e.target.value = ""; }} />
           </div>
@@ -222,7 +260,7 @@ export default function OptimizeView({ view }: { view: SettingsView }) {
               {demo && (
                 <span className="file demo">
                   <IconSparkles size={15} />
-                  <span className="nm">Données d'exemple (fictives)</span>
+                  <span className="nm">Données d'exemple {SITES[site].name} (fictives)</span>
                   <button className="x" onClick={() => { setDemo(false); setInspect(null); setResult(null); }} aria-label="Retirer les données d'exemple"><IconX size={14} /></button>
                 </span>
               )}
@@ -369,7 +407,7 @@ export default function OptimizeView({ view }: { view: SettingsView }) {
               <span className="num">2</span>
               <div>
                 <h2>Réglages</h2>
-                <p>Valeurs par défaut de l'organisation{isAdmin ? " (modifiables dans Administration › Réglages)" : ""}. Ne les changez que pour ce calcul.</p>
+                <p>Valeurs par défaut du site {SITES[site].name}{isAdmin ? " (modifiables dans Administration › Réglages)" : ""}. Ne les changez que pour ce calcul.</p>
               </div>
             </div>
             <button className="btn ghost small" onClick={() => setSettings(view.values)}>Rétablir les valeurs par défaut</button>
@@ -380,7 +418,7 @@ export default function OptimizeView({ view }: { view: SettingsView }) {
               <span>Certains réglages (règles d'échange, équité…) sont fixés par l'administrateur et appliqués automatiquement.</span>
             </div>
           )}
-          <SettingsPanel settings={settings} onChange={setSettings} show={show} />
+          <SettingsPanel settings={settings} onChange={setSettings} show={show} extraWaves={SITES[site].extraWaves} />
           {error && (
             <div className="callout err">
               <IconAlert size={16} />

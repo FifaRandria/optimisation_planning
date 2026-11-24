@@ -1,6 +1,7 @@
 // Métadonnées des réglages : groupes, libellés et visibilité par défaut pour les utilisateurs.
 // Partagé serveur + client.
 import type { Settings } from "./types";
+import type { SiteId } from "./sites";
 
 export type SettingKey = keyof Settings;
 
@@ -75,6 +76,7 @@ export interface PublicUser {
 /** Réglages tels que vus par la personne connectée. */
 export interface SettingsView {
   role: Role;
-  values: Settings; // valeurs par défaut de l'organisation
+  site: SiteId;
+  values: Settings; // valeurs par défaut du site
   userVisible: SettingKey[]; // réglages visibles et modifiables par les utilisateurs
 }

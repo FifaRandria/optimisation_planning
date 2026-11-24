@@ -1,4 +1,5 @@
 // Types partagés (serveur + client). Tout est sérialisable en JSON.
+import type { SiteId } from "./sites";
 
 export type Level = "PERF" | "MIDLE" | "DEBUTANT" | "INCONNU";
 
@@ -196,6 +197,7 @@ export interface Swap {
 }
 
 export interface OptimizationResult {
+  site?: SiteId; // site de transport (absent = Connecteo, optimisations antérieures aux sites)
   settings: Settings;
   axeColumns: string[];
   dates: string[];
