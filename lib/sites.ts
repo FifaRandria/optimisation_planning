@@ -10,6 +10,7 @@ export interface SiteInfo {
   name: string; // nom court (badges, listes)
   place: string; // lieu de départ du remisage / d'arrivée du ramassage
   description: string;
+  coords: { lat: number; lon: number }; // position par défaut : centre du fokontany du site, ajustable sur la page Axes
   defaults: Settings; // réglages recommandés du site
   extraWaves?: { pickup: number[]; drop: number[] }; // heures proposées en plus dans les réglages des vagues
 }
@@ -20,6 +21,7 @@ export const SITES: Record<SiteId, SiteInfo> = {
     name: "Connecteo",
     place: "Andranomena, zone Futura",
     description: "Ramassage à 6h, remisages de 18h à 23h.",
+    coords: { lat: -18.85156, lon: 47.48115 }, // fokontany Andranomena (COD-AB, HDX)
     defaults: DEFAULT_SETTINGS,
   },
   sirius: {
@@ -27,6 +29,7 @@ export const SITES: Record<SiteId, SiteInfo> = {
     name: "SIRIUS",
     place: "Galaxie Andraharo",
     description: "Shifts AM (6h–13h) et PM (13h–21h) : ramassage à 6h, remisage à 21h.",
+    coords: { lat: -18.88626, lon: 47.50803 }, // fokontany Andraharo (COD-AB, HDX)
     // mêmes règles d'échange que Connecteo ; seules les vagues changent
     defaults: { ...DEFAULT_SETTINGS, pickupHours: [6], dropHours: [21], axe21Waves: [21] },
     // 13h : sortie des AM / arrivée des PM ; 11h : sortie des AM le samedi (non transportées par défaut)

@@ -664,3 +664,46 @@ table.plan-t.editable td.sel { outline: 3px solid var(--primary); outline-offset
 .site-tab span { color: var(--muted); font-size: 13px; }
 .site-tab.on { border-color: var(--primary); background: var(--primary-soft); color: var(--primary); }
 .site-tab.sirius.on { border-color: var(--pickup); background: var(--pickup-soft); color: var(--pickup); }
+
+/* ---------------------------------------------------------------- Page « Axes » (carte) */
+.page.wide { max-width: 1440px; }
+.axes-layout { display: grid; grid-template-columns: minmax(300px, 380px) 1fr; gap: 18px; align-items: start; margin-top: 14px; }
+.axes-side { display: flex; flex-direction: column; gap: 14px; }
+.axes-side .card, .axes-main .card { margin: 0; }
+.axes-side h2, .axes-main h2 { display: flex; align-items: center; gap: 8px; font-size: 16px; margin-bottom: 6px; }
+.axes-main { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.axes-mapwrap { position: sticky; top: 12px; z-index: 0; border-radius: var(--r-lg); overflow: hidden; border: 1px solid var(--border); box-shadow: var(--shadow); }
+.axes-map { height: min(70vh, 640px); width: 100%; background: var(--surface-3); }
+.axes-map.loading { display: grid; place-items: center; color: var(--muted); }
+.map-hint { position: absolute; left: 50%; top: 12px; transform: translateX(-50%); z-index: 500; background: var(--surface); color: var(--text); padding: 6px 12px; border-radius: 999px; box-shadow: var(--shadow-lg); font-size: 13px; display: flex; gap: 8px; align-items: center; white-space: nowrap; }
+.linklike { background: none; border: 0; padding: 0; color: var(--primary); font: inherit; cursor: pointer; text-decoration: underline; }
+.site-pin { background: none; border: 0; }
+.site-pin-dot { display: block; width: 26px; height: 26px; border-radius: 50%; background: #0f172a; border: 4px solid #fff; box-shadow: 0 0 0 2px #0f172a, 0 4px 12px rgba(0,0,0,.35); }
+.axes-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 6px 0 8px; }
+.axes-tab { text-align: left; padding: 8px 10px; border: 1.5px solid var(--border); border-radius: var(--r-sm); background: var(--surface); color: var(--text); font: inherit; cursor: pointer; }
+.axes-tab small { display: block; color: var(--muted); font-size: 11.5px; line-height: 1.35; margin-top: 2px; }
+.axes-tab.on { border-color: var(--primary); background: var(--primary-soft); }
+.axes-form { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 8px 0; }
+.axes-form label, .axes-drivers { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; color: var(--text-2); font-weight: 600; }
+.axes-form input, .axes-drivers textarea, .axes-side .input { width: 100%; padding: 7px 9px; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--surface); color: var(--text); font: inherit; font-size: 13.5px; font-weight: 400; }
+.axes-form .unit { display: flex; align-items: center; gap: 6px; font-weight: 400; color: var(--muted); }
+.axes-drivers textarea { resize: vertical; font-family: var(--mono); font-size: 12.5px; }
+.axes-side .row-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.axes-list { list-style: none; margin: 6px 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.axes-list li { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: 8px; }
+.axes-list li.on, .axes-list li:hover { background: var(--surface-3); }
+.axes-list li i { flex: none; width: 12px; height: 12px; border-radius: 3px; }
+.axes-list .nm { flex: 1; min-width: 0; font-size: 13.5px; }
+.axes-list .nm small { display: block; color: var(--muted); font-size: 12px; }
+.axes-list .dur { font-weight: 700; font-variant-numeric: tabular-nums; }
+.axes-list .dur.bad { color: var(--danger); }
+.axes-main .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; margin-right: 4px; }
+.axes-main tr.sel td { background: var(--primary-soft); }
+.warn-text { color: var(--warn); font-weight: 600; }
+.point-card .row-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 8px 0; }
+.inline-select { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; }
+@media (max-width: 960px) {
+  .axes-layout { grid-template-columns: 1fr; }
+  .axes-mapwrap { position: relative; top: 0; }
+  .axes-map { height: 60vh; }
+}

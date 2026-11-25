@@ -6,7 +6,7 @@ import fs from "fs";
 import path from "path";
 import { parseWorkbooks } from "../lib/parse";
 import { optimize } from "../lib/optimize";
-import { buildSiriusFiles } from "../lib/sample-sirius";
+import { buildSiriusCoordsFile, buildSiriusFiles } from "../lib/sample-sirius";
 import { SITES } from "../lib/sites";
 
 const MONDAY = process.argv[2] || "2026-11-23";
@@ -16,6 +16,9 @@ async function main() {
   const files = await buildSiriusFiles(MONDAY);
   fs.mkdirSync(OUT, { recursive: true });
   for (const f of files) fs.writeFileSync(path.join(OUT, f.name), f.buffer);
+  // pour la page « Axes » : communes avec coordonnées approximatives (sans serveur de géocodage)
+  const coords = await buildSiriusCoordsFile();
+  fs.writeFileSync(path.join(OUT, coords.name), coords.buffer);
   console.log(`Écrit dans ${OUT}`);
 
   const inputs = parseWorkbooks(files);

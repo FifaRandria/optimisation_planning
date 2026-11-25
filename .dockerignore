@@ -24,3 +24,6 @@ docker-compose*.yml
 Makefile
 README.md
 .claude
+
+# Données OpenStreetMap de la carte (make map-init) : volumineuses, régénérables
+map-data/

@@ -25,3 +25,6 @@ Thumbs.db
 
 # Sauvegardes de la base (make backup) : données confidentielles
 backups/
+
+# Données OpenStreetMap de la carte (make map-init) : volumineuses, régénérables
+map-data/

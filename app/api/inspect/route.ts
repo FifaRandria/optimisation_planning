@@ -4,6 +4,7 @@ import { previewStats } from "@/lib/optimize";
 import { readFilesFromForm, readSettings, readSite } from "@/lib/server-utils";
 import { errorResponse, requireUser } from "@/lib/server/auth";
 import { effectiveSettings } from "@/lib/server/app-settings";
+import { withSavedAxes } from "@/lib/server/axis-tables";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,7 +18,8 @@ export async function POST(req: Request) {
     const files = await readFilesFromForm(form, site);
     if (files.length === 0) return NextResponse.json({ error: "Aucun fichier reçu." }, { status: 400 });
     const settings = await effectiveSettings(user, site, readSettings(form, site));
-    const inputs = parseWorkbooks(files);
+    // sans fichier d'axes déposé : table d'axes enregistrée du site (page « Axes »)
+    const inputs = await withSavedAxes(parseWorkbooks(files), site);
     const stats = previewStats(inputs, settings);
     return NextResponse.json({ detection: inputs.detection, alerts: inputs.alerts, stats });
   } catch (e) {

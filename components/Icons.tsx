@@ -180,3 +180,9 @@ export const IconArrowRight = (p: P) => (
     <path d="M5 12h14M13 6l6 6-6 6" />
   </Svg>
 );
+export const IconMap = (p: P) => (
+  <Svg {...p}>
+    <path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2z" />
+    <path d="M9 4v14M15 6v14" />
+  </Svg>
+);

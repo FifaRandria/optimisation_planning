@@ -5,6 +5,50 @@
 // (MATRICULE, NOM & PRENOM, QUARTIER, Point de remisage/ramassage, Contact, SHIFT, GMAIL, puis 2 colonnes par jour).
 import ExcelJS from "exceljs";
 
+/**
+ * Position APPROXIMATIVE des quartiers du jeu fictif (Antananarivo), pour tester la page « Axes »
+ * sans serveur de géocodage. À vérifier sur la carte : ce ne sont pas des relevés.
+ */
+export const SIRIUS_POINTS: { key: string; lat: number; lon: number }[] = [
+  { key: "Ivato", lat: -18.7995, lon: 47.4805 },
+  { key: "Mamory Ivato", lat: -18.789, lon: 47.469 },
+  { key: "Talatamaty", lat: -18.836, lon: 47.47 },
+  { key: "Ambohibao", lat: -18.855, lon: 47.486 },
+  { key: "Ambohidratrimo", lat: -18.818, lon: 47.441 },
+  { key: "Itaosy", lat: -18.918, lon: 47.478 },
+  { key: "Bemasoandro", lat: -18.925, lon: 47.469 },
+  { key: "Ampitatafika", lat: -18.933, lon: 47.488 },
+  { key: "Ankadindravola", lat: -18.943, lon: 47.458 },
+  { key: "Andohatapenaka", lat: -18.905, lon: 47.507 },
+  { key: "Ankazomanga", lat: -18.884, lon: 47.519 },
+  { key: "Manjakaray", lat: -18.889, lon: 47.535 },
+  { key: "Anosisoa", lat: -18.942, lon: 47.501 },
+  { key: "Anosibe", lat: -18.93, lon: 47.515 },
+  { key: "Ambohimanarina", lat: -18.873, lon: 47.511 },
+  { key: "Ambohidroa", lat: -18.868, lon: 47.497 },
+  { key: "Andranoro", lat: -18.861, lon: 47.494 },
+  { key: "Ambatolampy Antehiroka", lat: -18.85, lon: 47.503 },
+  { key: "Ilafy", lat: -18.858, lon: 47.566 },
+  { key: "Ankadikely Ilafy", lat: -18.848, lon: 47.576 },
+  { key: "Manjaka", lat: -18.862, lon: 47.582 },
+  { key: "Ambohimangakely", lat: -18.9, lon: 47.603 },
+  { key: "Ankorondrano", lat: -18.884, lon: 47.524 },
+  { key: "Ankatso", lat: -18.915, lon: 47.556 },
+  { key: "Ambatomaro", lat: -18.898, lon: 47.574 },
+  { key: "Soamanandrariny", lat: -18.92, lon: 47.57 },
+];
+
+/** Fichier « communes + coordonnées » (fictif) à déposer sur la page Axes en l'absence de géocodage. */
+export async function buildSiriusCoordsFile(): Promise<{ name: string; buffer: Buffer }> {
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet("Communes");
+  ws.addRow(["Commune", "Adresse", "Latitude", "Longitude"]);
+  ws.getRow(1).font = { bold: true };
+  [28, 36, 12, 12].forEach((w, i) => (ws.getColumn(i + 1).width = w));
+  for (const p of SIRIUS_POINTS) ws.addRow([p.key, `${p.key}, Antananarivo`, p.lat, p.lon]);
+  return { name: "sirius-communes-coordonnees.xlsx", buffer: Buffer.from((await wb.xlsx.writeBuffer()) as ArrayBuffer) };
+}
+
 export async function buildSiriusFiles(MONDAY: string): Promise<{ name: string; buffer: Buffer }[]> {
   const DATES = Array.from({ length: 7 }, (_, i) => {
     const d = new Date(MONDAY + "T00:00:00Z");

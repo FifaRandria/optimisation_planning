@@ -39,6 +39,10 @@ services:
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-Admin@2026!}
       SESSION_TTL_HOURS: ${SESSION_TTL_HOURS:-12}
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      # page « Axes » : services carte du profil « map » (vides = mode dégradé, durées estimées)
+      OSRM_URL: ${OSRM_URL:-}
+      NOMINATIM_URL: ${NOMINATIM_URL:-}
+      MAP_TILE_URL: ${MAP_TILE_URL:-}
     ports:
       - "${APP_PORT:-3000}:3000"
 
@@ -59,5 +63,31 @@ services:
       timeout: 5s
       retries: 20
 
+  # Carte (page « Axes ») : OpenStreetMap hébergé sur le serveur, aucune adresse n'en sort.
+  # Démarrés seulement avec le profil « map » (make map-init, puis make map-up). Données dans ./map-data.
+  osrm:
+    profiles: ["map"]
+    image: ghcr.io/project-osrm/osrm-backend:v5.27.1
+    restart: unless-stopped
+    command: osrm-routed --algorithm mld --max-table-size 3000 /data/madagascar-latest.osrm
+    volumes:
+      - ./map-data:/data:ro
+    # pas de port publié : joignable seulement par l'application (http://osrm:5000)
+
+  nominatim:
+    profiles: ["map"]
+    image: mediagis/nominatim:4.4
+    restart: unless-stopped
+    shm_size: 1gb
+    environment:
+      PBF_PATH: /nominatim/data/madagascar-latest.osm.pbf
+      IMPORT_STYLE: address
+      THREADS: 4
+    volumes:
+      - ./map-data:/nominatim/data
+      - nominatim-db:/var/lib/postgresql/14/main
+    # pas de port publié : joignable seulement par l'application (http://nominatim:8080)
+
 volumes:
   pgdata:
+  nominatim-db:

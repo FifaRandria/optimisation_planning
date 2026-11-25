@@ -101,6 +101,21 @@ CREATE TABLE IF NOT EXISTS site_settings (
   updated_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_by     INTEGER REFERENCES users(id) ON DELETE SET NULL
 );
+
+-- tables d'axes calculées sur la page « Axes » (carte) : une seule active par site, les autres restent en historique
+CREATE TABLE IF NOT EXISTS axis_tables (
+  id          SERIAL PRIMARY KEY,
+  site        TEXT NOT NULL,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  user_id     INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  comment     TEXT NOT NULL DEFAULT '',
+  points      INTEGER NOT NULL,
+  axes        INTEGER NOT NULL,
+  active      BOOLEAN NOT NULL DEFAULT FALSE,
+  doc_gz      BYTEA NOT NULL                -- AxesDoc complet (JSON compressé) : positions des quartiers, axes, réglages
+);
+CREATE INDEX IF NOT EXISTS axis_tables_site_idx ON axis_tables(site, created_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS axis_tables_one_active ON axis_tables(site) WHERE active;
 `;
 
 /** Crée les tables (si besoin), les réglages par défaut et l'admin initial (si aucun admin n'existe). */

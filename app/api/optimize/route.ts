@@ -4,6 +4,7 @@ import { optimize } from "@/lib/optimize";
 import { readFilesFromForm, readSettings, readSite } from "@/lib/server-utils";
 import { errorResponse, requireUser } from "@/lib/server/auth";
 import { effectiveSettings } from "@/lib/server/app-settings";
+import { withSavedAxes } from "@/lib/server/axis-tables";
 import { saveOptimization } from "@/lib/server/history";
 import { SITES } from "@/lib/sites";
 
@@ -20,7 +21,8 @@ export async function POST(req: Request) {
     if (files.length === 0) return NextResponse.json({ error: "Aucun fichier reçu." }, { status: 400 });
     // un utilisateur ne peut modifier que les réglages que l'admin lui a rendus visibles
     const settings = await effectiveSettings(user, site, readSettings(form, site));
-    const inputs = parseWorkbooks(files);
+    // sans fichier d'axes déposé : table d'axes enregistrée du site (page « Axes »)
+    const inputs = await withSavedAxes(parseWorkbooks(files), site);
     const fatal = inputs.alerts.find((a) => a.level === "error");
     if (!inputs.planning) return NextResponse.json({ error: fatal?.message ?? "Fichiers incomplets (planning manquant)." }, { status: 422 });
     const t0 = Date.now();

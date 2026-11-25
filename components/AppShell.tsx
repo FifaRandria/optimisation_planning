@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import type { PublicUser } from "@/lib/settings-meta";
-import { IconBook, IconBus, IconGear, IconHistory, IconHome, IconKey, IconLogout, IconSparkles, IconUsers } from "./Icons";
+import { IconBook, IconBus, IconGear, IconHistory, IconHome, IconKey, IconLogout, IconSparkles, IconUsers, IconMap } from "./Icons";
 
 const NAV = [
   { href: "/", label: "Tableau de bord", icon: IconHome },
@@ -15,6 +15,7 @@ const NAV = [
 const ADMIN_NAV = [
   { href: "/admin/utilisateurs", label: "Utilisateurs", icon: IconUsers },
   { href: "/admin/reglages", label: "Réglages", icon: IconGear },
+  { href: "/admin/axes", label: "Axes (carte)", icon: IconMap },
 ];
 
 const initials = (name: string) =>

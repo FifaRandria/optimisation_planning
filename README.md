@@ -149,6 +149,29 @@ Le transport part de deux sites, **optimisés séparément** :
 - Le planning SIRIUS d'origine (`LISTE_CSA_BO_MVOLA_SHIFTE_SIRUIS…`) est lu tel quel : en-têtes de jour sans année (« lun-09-nov »), feuille `Feuil1` masquée, adresse dans la colonne `QUARTIER`.
 - Jeu de test fictif SIRIUS : `npx tsx scripts/fictif-sirius.ts [lundi]` écrit planning, agents, axes et aménagements dans `docs/fichiers-test/sirius-semaine-<lundi>/` (axes et chauffeurs **inventés**, à remplacer par la vraie table).
 
+
+### Page « Axes » : créer les axes d'un site sur une carte (Administration › Axes)
+
+Pour un site sans table d'axes (SIRIUS), ou pour refaire celle d'un site :
+
+1. **Déposer un fichier** : liste des agents (Quartier, Commune, Point de remisage…), le planning SIRIUS tel quel, ou une liste Commune / Adresse / Latitude / Longitude. Un point de la carte = un quartier.
+2. **Position des quartiers**, dans l'ordre : coordonnées du fichier → position déjà enregistrée pour le site → **répertoire officiel des fokontany** (hors ligne, voir ci-dessous) → géocodage OpenStreetMap du serveur s'il est installé. Les autres se placent d'un clic sur la carte. Le marqueur du site se déplace aussi.
+3. **Contraintes**, séparément pour la colonne « Axe 23h » et la colonne « Axe 21h » (SIRIUS : ramassage 6h / remisage 21h) : nombre de chauffeurs, durée max d'un axe, détour max par arrêt, coefficient de trafic, noms des chauffeurs.
+4. **Calculer les axes** (`lib/axes-builder.ts`) : balayage angulaire autour du site, ordre des arrêts (plus proche voisin + 2-opt), puis échanges de points entre axes. Un quartier qui ne peut respecter les contraintes reste **hors axe** au lieu de les casser.
+5. **Corriger** (changer l'axe d'un quartier, le déplacer), **réévaluer**, puis **enregistrer** : la table devient celle du site, avec historique des versions, réactivation et export Excel au format « Axes ».
+6. **Optimisation** : sans fichier d'axes déposé, la table enregistrée du site est utilisée. Un fichier d'axes déposé reste prioritaire.
+
+**Itinéraires et géocodage sur le serveur (aucune adresse ne sort)** : `make map-init` télécharge l'extrait OpenStreetMap de Madagascar (Geofabrik), prépare OSRM (durées et tracés routiers réels) et importe Nominatim (géocodage), environ 30 à 60 min la première fois, puis `make map-up`. Sans ces services, les durées sont estimées à vol d'oiseau (× 1,4, 22 km/h) et les tracés sont des lignes droites, ce qui est signalé à l'écran. Seul le fond de carte (tuiles OSM) est chargé depuis Internet, et il ne transmet que la zone affichée.
+
+**Données ouvertes HDX** (`make map-hdx`, données dans `map-data/hdx/`, non versionnées) :
+
+| Jeu de données (HDX) | Licence | Utilisation |
+|---|---|---|
+| [COD-AB Madagascar](https://data.humdata.org/dataset/cod-ab-mdg) (OCHA / BNGRC) : 24 régions, 120 districts, 1 645 communes, 17 465 fokontany | CC BY-IGO | `scripts/build-gazetteer.ts` en tire `lib/geo/gazetteer-analamanga.json` (139 communes, 1 660 fokontany d'Analamanga, 155 Ko, versionné). Chaque quartier est placé au **centre de son fokontany**, sans connexion. Position des deux sites : fokontany Andranomena et Andraharo. |
+| [Populated Places](https://data.humdata.org/dataset/madagascar-settlements) (NGA / OCHA, 2007) | Other | Téléchargé pour référence, non utilisé (ancien, surtout rural). |
+| [Roads of Madagascar](https://data.humdata.org/dataset/hotosm_mdg_roads) (HOTOSM) | ODbL | Non téléchargé : ce sont les routes OpenStreetMap, déjà dans l'extrait utilisé par OSRM. |
+
+Sur les fichiers réels, le répertoire retrouve 94 % des quartiers du planning SIRIUS, 98 % de la feuille « Axes » du WFM et 95 % de Personnes-par-fonction, soit 91 à 99 % des agents. Exemples : « LOT IA D 23 A ANTANETIBE ITAOSY » → fokontany Antanetibe ; « 67 ha Sud » → 67ha Atsimo ; « Manjakaray » → groupe Manjakaray II B/C/D. Introuvables : Ambohimanarina (absent du répertoire officiel) et quelques adresses incomplètes. La précision est celle du fokontany, pas de l'adresse : elle suffit pour découper des axes.
 ---
 
 ## v1 → v2 : ce qui a changé

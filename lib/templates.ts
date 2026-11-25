@@ -1,5 +1,6 @@
 import ExcelJS from "exceljs";
 import { buildSample, type SampleSet } from "./sample";
+import type { AxeTable } from "./types";
 
 export type TemplateName = "planning" | "agents" | "axes" | "amenagements";
 
@@ -158,6 +159,30 @@ export async function buildTemplate(name: TemplateName, full = false, startIso?:
   const wb = name === "planning" ? planningWorkbook(s) : name === "agents" ? agentsWorkbook(s) : name === "axes" ? axesWorkbook(s) : amenagementsWorkbook(s);
   const out = await wb.xlsx.writeBuffer();
   return Buffer.from(out as ArrayBuffer);
+}
+
+/** Export d'une table d'axes (page « Axes ») : même format que la feuille « Axes », relisible par l'outil. */
+export async function axesTableWorkbook(table: AxeTable, siteLabel: string): Promise<Buffer> {
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet("Axes");
+  const cols = table.axeColumns;
+  ws.addRow(["Commune/Fokotany/Repère map", ...cols, ...cols.map((c) => `Chauffeur ${c.replace(/^Axe\s*/i, "à ")}`), "Distance (km)", "Durée en minutes"]);
+  styleHeader(ws.getRow(1));
+  ws.getColumn(1).width = 34;
+  cols.forEach((_, i) => {
+    ws.getColumn(2 + i).width = 12;
+    ws.getColumn(2 + cols.length + i).width = 30;
+  });
+  [...table.rows]
+    .sort((a, b) => (a.axes[cols[0]] ?? "").localeCompare(b.axes[cols[0]] ?? "", "fr", { numeric: true }) || (a.duree ?? 0) - (b.duree ?? 0))
+    .forEach((r) => ws.addRow([r.commune, ...cols.map((c) => r.axes[c] ?? null), ...cols.map((c) => r.chauffeurs[c] ?? null), r.distance ?? null, r.duree ?? null]));
+  ws.views = [{ state: "frozen", ySplit: 1 }];
+  readme(wb, [
+    `Table d'axes — ${siteLabel}`,
+    "Générée par la page « Axes » (carte). Peut être redéposée telle quelle avec le planning.",
+    "« Durée en minutes » : temps de trajet de l'agent sur son axe (soir de préférence), coefficient de trafic compris.",
+  ]);
+  return Buffer.from((await wb.xlsx.writeBuffer()) as ArrayBuffer);
 }
 
 /** Jeu complet : 4 classeurs, utilisé par la démo (passe par le vrai parseur). */
