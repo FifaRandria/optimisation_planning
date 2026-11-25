@@ -120,6 +120,7 @@ test: ## Tests de l'algorithme (données de démo + exemple fictif ; Node.js req
 	npm run test:real
 	npx tsx scripts/exemple-fictif.ts
 	npx tsx scripts/test-axes-builder.ts
+	npx tsx scripts/test-fichier-axes.ts
 
 clean: ## Arrête tout et SUPPRIME les données (comptes, historique)
 	@read -p "Supprimer définitivement la base (comptes, historique) ? Tapez « supprimer » : " r; [ "$$r" = "supprimer" ] || { echo "Annulé."; exit 1; }

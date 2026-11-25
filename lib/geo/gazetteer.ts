@@ -31,6 +31,8 @@ const NOISE = /\b(lot|lots|bis|ter|pres|pr|arret|arrets|bus|en face|face|cite|ru
 const CARDINAL: [RegExp, string][] = [[/\bnord est\b/g, "avaratra atsinanana"], [/\bnord ouest\b/g, "avaratra andrefana"], [/\bsud est\b/g, "atsimo atsinanana"], [/\bsud ouest\b/g, "atsimo andrefana"], [/\bnord\b/g, "avaratra"], [/\bsud\b/g, "atsimo"], [/\best\b/g, "atsinanana"], [/\bouest\b/g, "andrefana"], [/\bcentre\b/g, "afovoany"]];
 const canon = (s: unknown) => CARDINAL.reduce((t, [re, r]) => t.replace(re, r), norm(s).replace(/\b67\s*ha\b/g, "67ha"));
 const compact = (s: string) => s.replace(/\s+/g, "");
+// mots malgaches génériques des noms de fokontany (points cardinaux, « haut / bas », « petit / grand », « nouveau »…)
+const GENERIC = new Set(["atsimo", "avaratra", "atsinanana", "andrefana", "afovoany", "firaisana", "ambony", "ambany", "ambanivohitra", "kely", "vaovao", "centre", "cite", "ville", "sud", "nord", "est", "ouest"]);
 
 const entries: Entry[] = (data.rows as [number, string, string, string, number, number, string][]).map(([level, name, commune, district, lat, lon]) => ({
   level: level as 3 | 4,
@@ -100,17 +102,21 @@ export function lookupPlace(texts: string[], near: { lat: number; lon: number } 
     // 2) un nom contenu mot pour mot dans le texte (« LOT IA D 23 A ANTANETIBE ITAOSY »)
     const cleaned = t.replace(NOISE, " ").replace(/\b(?!67ha\b)[a-z]?\d+[a-z]?\b/g, " ").replace(/\s+/g, " ").trim();
     if (cleaned.length >= 3) {
-      for (const n of names) if (n.length >= 4 && ` ${cleaned} `.includes(` ${n} `)) cands.push(...fromEntries(byName.get(n)!, cleaned, 1, false, near));
+      // un nom plus court que le texte (« Morarano » dans « Morarano Firaisana ») passe après le nom complet
+      const hasExact = cands.some((c) => km(c, near) <= maxKm);
+      if (!hasExact) for (const n of names) if (n.length >= 4 && ` ${cleaned} `.includes(` ${n} `)) cands.push(...fromEntries(byName.get(n)!, cleaned, n === cleaned ? 0 : 8, false, near));
       // 3) début de nom (« Manjakaray » -> « Manjakaray II C ») ou mot d'un nom (« Isotry » -> « Ambalavao Isotry »)
       const words = cleaned.split(" ");
       for (let len = Math.min(3, words.length); len >= 1; len--)
         for (let k = 0; k + len <= words.length; k++) {
-          const w = words.slice(k, k + len).join(" ");
-          if (w.length < 5) continue;
+          const ws = words.slice(k, k + len);
+          const w = ws.join(" ");
+          // un mot générique seul (« atsimo », « firaisana », « kely »…) ne désigne aucun lieu
+          if (w.length < 5 || ws.every((x) => GENERIC.has(x))) continue;
           const pre = entries.filter((e) => e.level === 4 && e.n.startsWith(w + " "));
-          if (pre.length) cands.push(...fromGroup(pre, w, 4, near));
+          if (pre.length) cands.push(...fromGroup(pre, w, 9, near));
           const inside = entries.filter((e) => e.level === 4 && !e.n.startsWith(w + " ") && ` ${e.n} `.includes(` ${w} `));
-          if (inside.length) cands.push(...fromGroup(inside, w, 6, near));
+          if (inside.length) cands.push(...fromGroup(inside, w, 12, near));
         }
     }
     const ok = cands.filter((c) => km(c, near) <= maxKm).sort((a, b) => a.score - b.score);

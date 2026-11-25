@@ -172,6 +172,8 @@ Pour un site sans table d'axes (SIRIUS), ou pour refaire celle d'un site :
 | [Roads of Madagascar](https://data.humdata.org/dataset/hotosm_mdg_roads) (HOTOSM) | ODbL | Non téléchargé : ce sont les routes OpenStreetMap, déjà dans l'extrait utilisé par OSRM. |
 
 Sur les fichiers réels, le répertoire retrouve 94 % des quartiers du planning SIRIUS, 98 % de la feuille « Axes » du WFM et 95 % de Personnes-par-fonction, soit 91 à 99 % des agents. Exemples : « LOT IA D 23 A ANTANETIBE ITAOSY » → fokontany Antanetibe ; « 67 ha Sud » → 67ha Atsimo ; « Manjakaray » → groupe Manjakaray II B/C/D. Introuvables : Ambohimanarina (absent du répertoire officiel) et quelques adresses incomplètes. La précision est celle du fokontany, pas de l'adresse : elle suffit pour découper des axes.
+
+**Fichier de test et fiabilité** : `npx tsx scripts/test-fichier-axes.ts [site]` écrit `docs/fichiers-test/axes-carte/test-axes-<site>.xlsx`. Ce sont 180 agents fictifs répartis sur 60 vrais fokontany à moins de 15 km du site, écrits de façon « sale » (Lot…, minuscules, « - Antananarivo 4 », Sud/Nord, nom tronqué), plus des quartiers inventés. La feuille « Vérité » donne la réponse attendue. Le script rejoue la page et mesure la fiabilité. Résultat actuel (SIRIUS) : **90 % des quartiers bien placés** (100 % quand le nom est unique, 33 % quand le même nom existe plusieurs fois autour du site), **100 % des quartiers inventés refusés**, **100 % des contraintes respectées**, et un découpage identique à celui des positions exactes pour 78 à 87 % des paires de quartiers.
 ---
 
 ## v1 → v2 : ce qui a changé
