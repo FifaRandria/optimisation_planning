@@ -14,7 +14,7 @@ APP_PORT ?= 3000
 DEV_DB_PORT ?= 5433
 ADMIN_USERNAME ?= admin
 
-.PHONY: help init check-env build up down restart logs ps dev-db dev psql backup restore test clean map-init map-up map-hdx
+.PHONY: help init check-env build up down restart logs ps dev-db dev psql backup restore test clean map-init map-up map-hdx map-routes
 
 # carte (page « Axes ») : extrait OpenStreetMap de Madagascar
 MAP_PBF := madagascar-latest.osm.pbf
@@ -103,6 +103,11 @@ map-init: check-env ## Carte : télécharge Madagascar (OSM), prépare les itin�
 	@echo
 	@echo "Itinéraires prêts. Le géocodage importe Madagascar (plusieurs dizaines de minutes au 1er démarrage) :"
 	@echo "suivez « make logs s=nominatim » jusqu'à « Nominatim is ready »."
+
+map-routes: ## Carte : routes OpenStreetMap du Grand Antananarivo -> graphe local (trajets sur les routes, SANS Docker)
+	@mkdir -p map-data/osm
+	curl -fS --max-time 900 -A "transport-optimizer/1.0" -H "Accept: application/json" -o map-data/osm/tana-roads.json 	  --data-urlencode 'data=[out:json][timeout:600];way["highway"~"^(motorway|trunk|primary|secondary|tertiary|unclassified|residential|living_street|service|motorway_link|trunk_link|primary_link|secondary_link|tertiary_link|track|road)$$"]["access"!~"^(private|no)$$"](-19.10,47.30,-18.70,47.75);(._;>;);out body qt;' 	  https://overpass-api.de/api/interpreter
+	NODE_OPTIONS=--max-old-space-size=4096 npx tsx scripts/build-road-graph.ts
 
 map-hdx: ## Carte : télécharge les fokontany / communes officiels (HDX, ~90 Mo) et régénère lib/geo/gazetteer-analamanga.json
 	@mkdir -p map-data/hdx/cod-ab map-data/hdx/populated-places

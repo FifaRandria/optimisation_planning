@@ -6,6 +6,7 @@ import { getAppSettings } from "@/lib/server/app-settings";
 import { getAxes, listAxesVersions } from "@/lib/server/axis-tables";
 import { geocodingAvailable } from "@/lib/geo/geocode";
 import { routingAvailable } from "@/lib/geo/osrm";
+import { roadGraphAvailable } from "@/lib/geo/road-graph";
 import { columnUse } from "@/lib/axes-map";
 import { SITES, SITE_IDS, siteOf } from "@/lib/sites";
 
@@ -35,7 +36,7 @@ export default async function AxesPage({ searchParams }: { searchParams: { site?
         colUse={columnUse(values)}
         initialDoc={active?.doc ?? null}
         versions={versions}
-        services={{ routing: routingAvailable(), geocoding: geocodingAvailable() }}
+        services={{ routing: routingAvailable(), roads: roadGraphAvailable(), geocoding: geocodingAvailable() }}
         tileUrl={process.env.MAP_TILE_URL || "https://tile.openstreetmap.org/{z}/{x}/{y}.png"}
         tileAttribution={process.env.MAP_TILE_ATTRIBUTION || '&copy; <a href="https://www.openstreetmap.org/copyright">les contributeurs OpenStreetMap</a>'}
       />

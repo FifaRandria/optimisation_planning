@@ -188,68 +188,144 @@ export function buildAxes(points: PointLite[], site: { lat: number; lon: number 
   }
   if (!points.length) return { axes: Array.from({ length: k }, () => evaluateRoute([], M, dir, p)), outside: [] };
 
-  // 1) amorce + ordre
-  let groups = sweep(points, site, k).map((g) => orderStops(g, M, dir));
+  const feasible = (stops: number[]) => {
+    const r = evaluateRoute(stops, M, dir, p);
+    return !r.overDuration && !r.overDetour.some(Boolean);
+  };
+  const w = (i: number) => Math.max(1, points[i].weight ?? 1);
 
-  // 2) amélioration locale : déplacer un point vers l'axe où il coûte le moins (jamais vider un axe)
-  for (let pass = 0; pass < 30; pass++) {
-    let moved = false;
-    for (let a = 0; a < groups.length; a++) {
-      for (const s of [...groups[a]]) {
-        if (groups[a].length <= 1) break;
-        const without = groups[a].filter((x) => x !== s);
-        const curA = axeScore(groups[a], M, dir, p);
-        const newA = axeScore(without, M, dir, p);
-        let best: { b: number; stops: number[]; gain: number } | null = null;
-        for (let b = 0; b < groups.length; b++) {
-          if (b === a) continue;
-          const ins = bestInsertion(groups[b], s, M, dir, p);
-          const gain = curA + axeScore(groups[b], M, dir, p) - (newA + ins.score);
-          if (gain > 1e-6 && (!best || gain > best.gain + 1e-9)) best = { b, stops: ins.stops, gain };
-        }
-        if (best) {
-          groups[a] = orderStops(without, M, dir);
-          groups[best.b] = orderStops(best.stops, M, dir);
-          moved = true;
+  // amélioration locale : déplacer un point vers l'axe où il coûte le moins (jamais vider un axe)
+  const localSearch = (start: number[][]): number[][] => {
+    const groups = start.map((g) => [...g]);
+    for (let pass = 0; pass < 30; pass++) {
+      let moved = false;
+      for (let a = 0; a < groups.length; a++) {
+        for (const s of [...groups[a]]) {
+          if (groups[a].length <= 1) break;
+          const without = groups[a].filter((x) => x !== s);
+          const curA = axeScore(groups[a], M, dir, p);
+          const newA = axeScore(without, M, dir, p);
+          let best: { b: number; stops: number[]; gain: number } | null = null;
+          for (let b = 0; b < groups.length; b++) {
+            if (b === a) continue;
+            const ins = bestInsertion(groups[b], s, M, dir, p);
+            const gain = curA + axeScore(groups[b], M, dir, p) - (newA + ins.score);
+            if (gain > 1e-6 && (!best || gain > best.gain + 1e-9)) best = { b, stops: ins.stops, gain };
+          }
+          if (best) {
+            groups[a] = orderStops(without, M, dir);
+            groups[best.b] = orderStops(best.stops, M, dir);
+            moved = true;
+          }
         }
       }
+      if (!moved) break;
     }
-    if (!moved) break;
-  }
+    return groups;
+  };
 
-  // 3) points impossibles : on retire l'arrêt fautif, on essaie de le placer ailleurs sans dépassement, sinon hors axe
-  const outside: BuildOutput["outside"] = [];
-  const pending: number[] = [];
-  groups = groups.map((g) => {
-    let cur = [...g];
-    for (let guard = 0; guard < 500; guard++) {
-      const r = evaluateRoute(cur, M, dir, p);
-      if (!r.overDuration && !r.overDetour.some(Boolean)) break;
-      // arrêt le plus coûteux : plus grand détour fautif, sinon (durée dépassée) l'arrêt le plus éloigné
-      let worst = -1;
-      r.detours.forEach((d, i) => r.overDetour[i] && (worst < 0 || d > r.detours[worst]) && (worst = i));
-      if (worst < 0) worst = cur.length - 1;
-      pending.push(cur[worst]);
-      cur = orderStops(cur.filter((_, i) => i !== worst), M, dir);
+  // réparation : on retire l'arrêt fautif tant qu'un axe dépasse une contrainte
+  const repair = (start: number[][]): { groups: number[][]; pending: number[] } => {
+    const pending: number[] = [];
+    const groups = start.map((g) => {
+      let cur = [...g];
+      for (let guard = 0; guard < 500; guard++) {
+        const r = evaluateRoute(cur, M, dir, p);
+        if (!r.overDuration && !r.overDetour.some(Boolean)) break;
+        // arrêt le plus coûteux : plus grand détour fautif, sinon (durée dépassée) l'arrêt le plus éloigné
+        let worst = -1;
+        r.detours.forEach((d, i) => r.overDetour[i] && (worst < 0 || d > r.detours[worst]) && (worst = i));
+        if (worst < 0) worst = cur.length - 1;
+        pending.push(cur[worst]);
+        cur = orderStops(cur.filter((_, i) => i !== worst), M, dir);
+      }
+      return cur;
+    });
+    return { groups, pending };
+  };
+
+  // réinsertion : chaque point restant va dans l'axe où il coûte le moins sans dépasser, sinon il reste dehors
+  const reinsert = (start: number[][], pending: number[]): { groups: number[][]; rest: number[] } => {
+    const groups = start.map((g) => [...g]);
+    const rest: number[] = [];
+    // les quartiers qui comptent le plus d'agents d'abord
+    for (const s of [...pending].sort((x, y) => w(y) - w(x) || x - y)) {
+      let best: { b: number; stops: number[]; cost: number } | null = null;
+      for (let b = 0; b < groups.length; b++) {
+        const cand = orderStops([...groups[b], s], M, dir);
+        if (!feasible(cand)) continue;
+        const cost = routeCost(cand, M, dir) - routeCost(groups[b], M, dir);
+        if (!best || cost < best.cost - 1e-9) best = { b, stops: cand, cost };
+      }
+      if (best) groups[best.b] = best.stops;
+      else rest.push(s);
     }
-    return cur;
+    return { groups, rest };
+  };
+
+  const finish = (start: number[][], extra: number[] = []) => {
+    const repaired = repair(localSearch(start));
+    return reinsert(repaired.groups, [...repaired.pending, ...extra]);
+  };
+
+  // méthode A : balayage angulaire autour du site (secteurs équilibrés en agents)
+  const A = finish(sweep(points, site, k).map((g) => orderStops(g, M, dir)));
+
+  // méthode B : insertion progressive à partir de K quartiers éloignés les uns des autres
+  // (évite qu'un axe reste coincé dans un secteur presque vide)
+  const B = (() => {
+    const all = points.map((_, i) => i);
+    const ok = all.filter((i) => feasible([i]));
+    const tooFar = all.filter((i) => !ok.includes(i));
+    const t = (a: number, b: number) => (M[a][b] + M[b][a]) / 2; // index matrice (0 = site)
+    const seeds: number[] = [];
+    if (ok.length) seeds.push(ok.reduce((m, i) => (t(0, i + 1) > t(0, m + 1) + 1e-9 ? i : m), ok[0]));
+    while (seeds.length < Math.min(k, ok.length)) {
+      let bestI = -1;
+      let bestD = -1;
+      for (const i of ok) {
+        if (seeds.includes(i)) continue;
+        const d = Math.min(...seeds.map((s) => t(i + 1, s + 1)));
+        if (d > bestD + 1e-9) (bestD = d), (bestI = i);
+      }
+      seeds.push(bestI);
+    }
+    const groups: number[][] = Array.from({ length: k }, (_, g) => (seeds[g] !== undefined ? [seeds[g]] : []));
+    const left = new Set(ok.filter((i) => !seeds.includes(i)));
+    for (;;) {
+      let best: { u: number; g: number; stops: number[]; score: number } | null = null;
+      for (const u of [...left].sort((x, y) => x - y)) {
+        for (let g = 0; g < groups.length; g++) {
+          const base = routeCost(groups[g], M, dir);
+          for (let pos = 0; pos <= groups[g].length; pos++) {
+            const cand = [...groups[g].slice(0, pos), u, ...groups[g].slice(pos)];
+            if (!feasible(cand)) continue;
+            const score = (routeCost(cand, M, dir) - base) / w(u);
+            if (!best || score < best.score - 1e-9) best = { u, g, stops: cand, score };
+          }
+        }
+      }
+      if (!best) break;
+      groups[best.g] = best.stops;
+      left.delete(best.u);
+    }
+    const ordered = groups.map((g) => {
+      const o = orderStops(g, M, dir);
+      return feasible(o) ? o : g;
+    });
+    return finish(ordered, [...left, ...tooFar]);
+  })();
+
+  // on garde la méthode qui dessert le plus d'agents, puis la plus courte
+  const covered = (r: { groups: number[][] }) => r.groups.reduce((s, g) => s + g.reduce((a, i) => a + w(i), 0), 0);
+  const total = (r: { groups: number[][] }) => r.groups.reduce((s, g) => s + routeCost(g, M, dir), 0);
+  const win = covered(B) > covered(A) || (covered(B) === covered(A) && total(B) < total(A) - 1e-9) ? B : A;
+
+  const outside: BuildOutput["outside"] = [...win.rest].sort((x, y) => x - y).map((s) => {
+    const alone = evaluateRoute([s], M, dir, p);
+    return { index: s, reason: alone.overDuration ? `trop loin : ${Math.ceil(alone.total)} min seul, au-delà de ${p.maxDurationMin} min` : "aucun axe ne peut l'ajouter sans dépasser la durée ou le détour maximum" };
   });
-  for (const s of pending.sort((x, y) => x - y)) {
-    let best: { b: number; stops: number[]; cost: number } | null = null;
-    for (let b = 0; b < groups.length; b++) {
-      const cand = orderStops([...groups[b], s], M, dir);
-      const r = evaluateRoute(cand, M, dir, p);
-      if (r.overDuration || r.overDetour.some(Boolean)) continue;
-      const cost = r.total - routeCost(groups[b], M, dir);
-      if (!best || cost < best.cost - 1e-9) best = { b, stops: cand, cost };
-    }
-    if (best) groups[best.b] = best.stops;
-    else {
-      const alone = evaluateRoute([s], M, dir, p);
-      outside.push({ index: s, reason: alone.overDuration ? `trop loin : ${Math.ceil(alone.total)} min seul, au-delà de ${p.maxDurationMin} min` : "aucun axe ne peut l'ajouter sans dépasser la durée ou le détour maximum" });
-    }
-  }
-  return { axes: groups.map((g) => evaluateRoute(g, M, dir, p)), outside };
+  return { axes: win.groups.map((g) => evaluateRoute(g, M, dir, p)), outside };
 }
 
 // ---------------------------------------------------------------------------

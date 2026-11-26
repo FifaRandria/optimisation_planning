@@ -5,6 +5,7 @@ import { computeAxesDoc, sanitizeAxesSettings, sanitizePoints } from "@/lib/serv
 import { getAppSettings } from "@/lib/server/app-settings";
 import { geocodingAvailable } from "@/lib/geo/geocode";
 import { routingAvailable } from "@/lib/geo/osrm";
+import { roadGraphAvailable } from "@/lib/geo/road-graph";
 import { isSiteId, type SiteId } from "@/lib/sites";
 import { AXE_COLS, type AxeCol } from "@/lib/axes-map";
 
@@ -23,7 +24,7 @@ export async function GET(_req: Request, { params }: { params: { site: string } 
     await requireUser({ admin: true });
     const site = siteParam(params.site);
     const [active, versions] = await Promise.all([getAxes(site), listAxesVersions(site)]);
-    return NextResponse.json({ active, versions, services: { routing: routingAvailable(), geocoding: geocodingAvailable() } });
+    return NextResponse.json({ active, versions, services: { routing: routingAvailable(), roads: roadGraphAvailable(), geocoding: geocodingAvailable() } });
   } catch (e) {
     return errorResponse(e);
   }

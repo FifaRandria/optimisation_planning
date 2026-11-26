@@ -161,6 +161,8 @@ Pour un site sans table d'axes (SIRIUS), ou pour refaire celle d'un site :
 5. **Corriger** (changer l'axe d'un quartier, le déplacer), **réévaluer**, puis **enregistrer** : la table devient celle du site, avec historique des versions, réactivation et export Excel au format « Axes ».
 6. **Optimisation** : sans fichier d'axes déposé, la table enregistrée du site est utilisée. Un fichier d'axes déposé reste prioritaire.
 
+**Trajets sur les routes, sans Docker** : `make map-routes` télécharge une seule fois les routes OpenStreetMap du Grand Antananarivo (requête Overpass sur un rectangle, aucune adresse envoyée, environ 35 Mo) et en tire un graphe local de 40 000 carrefours (`map-data/osm/tana-graph.json.gz`, 3 Mo, non versionné). Les durées et les tracés suivent alors les rues : plus court chemin en temps, vitesses par type de route, puis coefficient de trafic. Le calcul prend environ 1,5 s pour 60 quartiers. Le badge en haut de la page indique la source : « Routes réelles · OpenStreetMap » (trait plein) ou « Estimation à vol d'oiseau » (pointillés).
+
 **Itinéraires et géocodage sur le serveur (aucune adresse ne sort)** : `make map-init` télécharge l'extrait OpenStreetMap de Madagascar (Geofabrik), prépare OSRM (durées et tracés routiers réels) et importe Nominatim (géocodage), environ 30 à 60 min la première fois, puis `make map-up`. Sans ces services, les durées sont estimées à vol d'oiseau (× 1,4, 22 km/h) et les tracés sont des lignes droites, ce qui est signalé à l'écran. Seul le fond de carte (tuiles OSM) est chargé depuis Internet, et il ne transmet que la zone affichée.
 
 **Données ouvertes HDX** (`make map-hdx`, données dans `map-data/hdx/`, non versionnées) :

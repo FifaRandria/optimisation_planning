@@ -67,7 +67,7 @@ export interface AxesDoc {
   points: MapPoint[];
   plans: Record<AxeCol, AxesPlan | null>;
   pointKm: (number | null)[]; // distance routière site -> point
-  source: "osrm" | "estimation";
+  source: "osrm" | "routes" | "estimation";
   computedAt: string;
 }
 

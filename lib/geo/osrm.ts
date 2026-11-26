@@ -1,14 +1,17 @@
-// Itinéraires routiers (serveur uniquement) : OSRM hébergé sur le serveur (service « osrm » de docker-compose).
-// Sans OSRM_URL, on estime les durées à vol d'oiseau (mode dégradé, signalé à l'écran).
+// Itinéraires routiers (serveur uniquement), du plus précis au plus simple :
+//  1) OSRM hébergé sur le serveur (service « osrm » de docker-compose, OSRM_URL) ;
+//  2) graphe routier OpenStreetMap local (map-data/osm/tana-graph.json.gz, make map-routes) : sans Docker ;
+//  3) estimation à vol d'oiseau (mode dégradé, signalé à l'écran).
 // Aucune adresse n'est envoyée : seulement des coordonnées, et seulement à notre propre serveur OSRM.
 import { estimateMatrix } from "../axes-builder";
+import { roadGeometry, roadMatrix } from "./road-graph";
 
 export type LatLon = { lat: number; lon: number };
 
 export interface Matrix {
   minutes: number[][]; // index 0 = site
   km: number[][];
-  source: "osrm" | "estimation";
+  source: "osrm" | "routes" | "estimation";
 }
 
 const osrmUrl = () => (process.env.OSRM_URL || "").replace(/\/+$/, "");
@@ -51,20 +54,28 @@ export async function durationMatrix(site: LatLon, points: LatLon[], traffic = 1
     }
   }
   const est = estimateMatrix(site, points);
+  const road = all.length >= 2 ? roadMatrix(all) : null;
+  if (road) {
+    // une paire sans chemin (point hors du réseau) : estimation pour cette paire
+    const minutes = road.minutes.map((row, a) => row.map((m, b) => (Number.isFinite(m) ? m : est.minutes[a][b]) * traffic));
+    const km = road.km.map((row, a) => row.map((d, b) => (Number.isFinite(d) && (d > 0 || a === b) ? d : est.km[a][b])));
+    return { minutes, km, source: "routes" };
+  }
   return { minutes: est.minutes.map((r) => r.map((m) => m * traffic)), km: est.km, source: "estimation" };
 }
 
 /** Tracé routier d'un axe (pour la carte) ; ligne droite entre les arrêts si OSRM n'est pas disponible. */
 export async function routeGeometry(stops: LatLon[]): Promise<[number, number][]> {
   const straight = stops.map((p) => [p.lat, p.lon] as [number, number]);
-  if (!routingAvailable() || stops.length < 2) return straight;
+  if (stops.length < 2) return straight;
+  if (!routingAvailable()) return roadGeometry(stops) ?? straight;
   try {
     const j = await getJson<{ code: string; routes: { geometry: { coordinates: [number, number][] } }[] }>(
       `${osrmUrl()}/route/v1/driving/${coordList(stops)}?overview=full&geometries=geojson`
     );
     if (j.code === "Ok" && j.routes[0]) return j.routes[0].geometry.coordinates.map(([lon, lat]) => [lat, lon]);
   } catch {
-    /* ligne droite */
+    /* repli : graphe local, sinon ligne droite */
   }
-  return straight;
+  return roadGeometry(stops) ?? straight;
 }

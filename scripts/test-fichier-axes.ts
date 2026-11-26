@@ -13,7 +13,8 @@ import ExcelJS from "exceljs";
 import data from "../lib/geo/gazetteer-analamanga.json";
 import { lookupPlace } from "../lib/geo/gazetteer";
 import { readPoints } from "../lib/axes-input";
-import { buildAxes, estimateMatrix, haversineKm, type Direction } from "../lib/axes-builder";
+import { buildAxes, haversineKm, type Direction } from "../lib/axes-builder";
+import { durationMatrix } from "../lib/geo/osrm";
 import { SITES, siteOf } from "../lib/sites";
 import { norm } from "../lib/util";
 
@@ -206,16 +207,17 @@ async function main() {
     ["remisage", { vehicles: 5, maxDurationMin: 60, maxDetourMin: 12 }],
     ["remisage", { vehicles: 8, maxDurationMin: 75, maxDetourMin: 15 }],
   ];
-  console.log("\nB. AXES CALCULÉS (durées estimées à vol d'oiseau, coefficient de trafic 1,3)");
+  console.log("\nB. AXES CALCULÉS (coefficient de trafic 1,3)");
   for (const [dir, p] of SCENARIOS) {
     // positions trouvées par l'outil (points non trouvés = à placer : exclus, comme sur la page)
     const placed = real.filter((x) => x.f);
     const ptsFound = placed.map((x) => ({ lat: x.f!.lat, lon: x.f!.lon, weight: x.p.agents }));
-    const mF = estimateMatrix(S, ptsFound).minutes.map((r) => r.map((m) => m * 1.3));
+    const matF = await durationMatrix(S, ptsFound, 1.3);
+    const mF = matF.minutes;
     const outF = buildAxes(ptsFound, S, mF, dir, p);
     // mêmes quartiers aux positions EXACTES (vérité)
     const ptsTrue = placed.map((x) => ({ lat: x.t.lat!, lon: x.t.lon!, weight: x.p.agents }));
-    const mT = estimateMatrix(S, ptsTrue).minutes.map((r) => r.map((m) => m * 1.3));
+    const mT = (await durationMatrix(S, ptsTrue, 1.3)).minutes;
     const outT = buildAxes(ptsTrue, S, mT, dir, p);
 
     const axeOf = (o: typeof outF) => {
@@ -238,7 +240,7 @@ async function main() {
         if ((aF[i] === aF[j]) === (aT[i] === aT[j])) agree++;
       }
     const loads = outF.axes.map((a) => a.stops.reduce((s, st) => s + placed[st].p.agents, 0));
-    console.log(`   ${dir.padEnd(9)} ${p.vehicles} axes ≤ ${p.maxDurationMin} min, détour ≤ ${p.maxDetourMin} min`);
+    console.log(`   ${dir.padEnd(9)} ${p.vehicles} axes ≤ ${p.maxDurationMin} min, détour ≤ ${p.maxDetourMin} min · durées : ${matF.source === "estimation" ? "estimées à vol d'oiseau" : "sur les routes (OpenStreetMap)"}`);
     console.log(`      contraintes respectées : ${violations === 0 ? "100 %" : `${violations} dépassement(s)`}`);
     console.log(`      quartiers placés dans un axe : ${inAxe}/${placed.length}  ${pct(inAxe, placed.length)} · agents : ${agIn}/${placed.reduce((s, x) => s + x.p.agents, 0)}  ${pct(agIn, placed.reduce((s, x) => s + x.p.agents, 0))}`);
     console.log(`      durées des axes : ${outF.axes.map((a) => Math.round(a.total)).join(", ")} min · agents par axe : ${loads.join(", ")}`);

@@ -43,6 +43,10 @@ services:
       OSRM_URL: ${OSRM_URL:-}
       NOMINATIM_URL: ${NOMINATIM_URL:-}
       MAP_TILE_URL: ${MAP_TILE_URL:-}
+      ROAD_GRAPH_PATH: /app/map-data/osm/tana-graph.json.gz
+    volumes:
+      # graphe routier local (make map-routes) : trajets sur les routes sans OSRM
+      - ./map-data/osm:/app/map-data/osm:ro
     ports:
       - "${APP_PORT:-3000}:3000"
 
